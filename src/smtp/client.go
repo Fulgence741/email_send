@@ -11,27 +11,31 @@ import (
 )
 
 type SMTPClient struct {
-	Config *config.Config
+	Configuration *config.Config
 }
 
 func NewSMTPClient(cfg *config.Config) *SMTPClient {
 	return &SMTPClient{
-		Config: cfg,
+		Configuration: cfg,
 	}
 }
 
-func (s *SMTPClient) SendEmail(to, subject, body, contentType string) error {
+func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType string) error {
 
-	host := s.Config.SMTPHost
-	address := net.JoinHostPort(host, fmt.Sprint(s.Config.SMTPPort))
+	// Récupération de la configuration
+	host := client.Configuration.SMTPHost
 
-	// Vérifier les adresses email
-	from, err := mail.ParseAddress(s.Config.SMTPFrom)
+	// Construction de l'adresse réseau complète
+	address := net.JoinHostPort(host, fmt.Sprint(client.Configuration.SMTPPort))
+
+	// Vérifier les adresses email de l'expéditeur
+	from, err := mail.ParseAddress(client.Configuration.SMTPFrom)
 	if err != nil {
 		return fmt.Errorf("adresse expéditeur invalide : %w", err)
 	}
 
-	recipient, err := mail.ParseAddress(to)
+	// vérifier adresse email du destinataire 
+	recipient, err := mail.ParseAddress(expediteur)
 	if err != nil {
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
 	}
@@ -64,8 +68,8 @@ func (s *SMTPClient) SendEmail(to, subject, body, contentType string) error {
 	// Authentification SMTP
 	auth := smtp.PlainAuth(
 		"",
-		s.Config.SMTPUser,
-		s.Config.SMTPPassword,
+		client.Configuration.SMTPUser,
+		client.Configuration.SMTPPassword,
 		host,
 	)
 
