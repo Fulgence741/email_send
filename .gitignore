@@ -1,0 +1,19 @@
+# Variables d'environnement
+.env
+.env.*
+!.env.example
+
+# Binaires
+*.exe
+*.out
+*.test
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Fichiers temporaires
+tmp/
