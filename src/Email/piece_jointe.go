@@ -3,13 +3,13 @@ package email
 import "time"
 
 type PieceJointe struct {
-	IDPieceJointe int64     `gorm:"primaryKey" json:"id_piece_jointe"`
-	IDEmail       int64     `json:"id_email"`
-	NomFichier    string    `json:"nom_fichier"`
-	TypeMIME      string    `json:"type_mime"`
-	CheminFichier string    `json:"chemin_fichier"`
-	TailleFichier int64     `json:"taille_fichier"`
-	DateCreation  time.Time `json:"date_creation"`
+	IDPieceJointe int64     `gorm:"column:primaryKey" json:"id_piece_jointe"`
+	IDEmail       int64     `gorm:"column:id_email;not null" json:"id_email"`
+	NomFichier    string    `gorm:"column:nom_fichier;not null" json:"nom_fichier"`
+	TypeMIME      string    `gorm:"column:type_mime;not null" json:"type_mime"`
+	CheminFichier string    `gorm:"column:chemin_fichier" json:"chemin_fichier"`
+	TailleFichier int64     `gorm:"column:taille_fichier" json:"taille_fichier"`
+	DateCreation  time.Time `gorm:"column:date_creation" json:"date_creation"`
 }
 
 func (PieceJointe) TableName() string {

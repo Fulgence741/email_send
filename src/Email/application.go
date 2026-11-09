@@ -3,11 +3,11 @@ package email
 import "time"
 
 type Application struct {
-	IDApplication int64     `gorm:"primaryKey" json:"id_application"`
-	Nom           string    `json:"nom"`
-	APIKeyHash    string    `json:"-"`
-	Statut        bool      `json:"statut"`
-	DateCreation  time.Time `json:"date_creation"`
+	IDApplication int64     `gorm:"column:primaryKey" json:"id_application"`
+	Nom           string    `gorm:"column:nom;not null" json:"nom"`
+	APIKeyHash    string    `gorm:"-"`
+	Statut        bool      `gorm:"column statut" json:"statut"`
+	DateCreation  time.Time `gorm:"column:date_creation" json:"date_creation"`
 }
 
 func (Application) TableName() string {
