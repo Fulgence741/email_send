@@ -1,7 +1,6 @@
-package database
+package setting
 
 import (
-	"email-send-API/config"
 	"fmt"
 
 	"context"
@@ -13,7 +12,7 @@ import (
 
 // ConnectDB établit une connexion à la base de données PostgreSQL
 // en utilisant les paramètres de configuration fournis.
-func ConnectDB(cfg *config.Config) (*gorm.DB, error) {
+func ConnectDB(cfg *Config) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 

@@ -1,4 +1,4 @@
-package smtp
+package email
 
 import (
 	"fmt"
@@ -7,14 +7,14 @@ import (
 	"net/smtp"
 	"strings"
 
-	"email-send-API/config"
+	setting "email-send-API/src/Setting"
 )
 
 type SMTPClient struct {
-	Configuration *config.Config
+	Configuration *setting.Config
 }
 
-func NewSMTPClient(cfg *config.Config) *SMTPClient {
+func NewSMTPClient(cfg *setting.Config) *SMTPClient {
 	return &SMTPClient{
 		Configuration: cfg,
 	}

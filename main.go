@@ -1,20 +1,19 @@
 package main
 
 import (
-	"email-send-API/config"
-	"email-send-API/database"
-	"email-send-API/routes"
 	"log"
 	"strconv"
+
+	setting "email-send-API/src/Setting"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// Charger la configuration
-	cfg := config.LoadConfig()
+	cfg := setting.LoadConfig()
 
-	db, err := database.ConnectDB(cfg)
+	db, err := setting.ConnectDB(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -30,7 +29,7 @@ func main() {
 	router := gin.Default()
 
 	// initialiser les routes
-	routes.RegisterRoutes(router, cfg)
+	setting.RegisterRoutes(router, cfg)
 
 	// Demarrage du serveur
 	port := strconv.Itoa(cfg.AppPort)
