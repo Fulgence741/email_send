@@ -34,7 +34,7 @@ func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType strin
 		return fmt.Errorf("adresse expéditeur invalide : %w", err)
 	}
 
-	// vérifier adresse email du destinataire 
+	// vérifier adresse email du destinataire
 	recipient, err := mail.ParseAddress(expediteur)
 	if err != nil {
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
