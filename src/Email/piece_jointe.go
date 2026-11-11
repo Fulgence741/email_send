@@ -1,7 +1,11 @@
 package email
 
-import "time"
+import (
+	"time"
+)
 
+// Model
+// ====================================================================
 type PieceJointe struct {
 	IDPieceJointe int64     `gorm:"column:primaryKey" json:"id_piece_jointe"`
 	IDEmail       int64     `gorm:"column:id_email;not null" json:"id_email"`
@@ -16,9 +20,19 @@ func (PieceJointe) TableName() string {
 	return "pieces_jointes"
 }
 
+// ==========================================
+
+// DTO
+// ========================================================
 type PieceJointeResponseDTO struct {
 	IDPieceJointe int64  `json:"id_piece_jointe"`
 	NomFichier    string `json:"nom_fichier"`
 	TypeMIME      string `json:"type_mime"`
 	TailleFichier int64  `json:"taille_fichier"`
 }
+
+// =========================================================
+
+// Handler
+
+//func PieceJointehandlers(c *gin.Context)

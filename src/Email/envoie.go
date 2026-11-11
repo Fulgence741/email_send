@@ -1,7 +1,12 @@
 package email
 
-import "time"
+import (
+	"time"
+)
 
+// Moels
+//
+//	===============================================================================
 type Envoie struct {
 	IDTentative     int64     `gorm:"primaryKey;column:id_tentative"`
 	IDEmail         int64     `gorm:"column:id_email;not null" json:"id_email"`
@@ -16,6 +21,9 @@ func (Envoie) TableName() string {
 	return "tentatives_envoi"
 }
 
+//=====================================================================================
+
+// DTO =======================================================
 type ResponseEnvoieDTO struct {
 	IDTentative     int64     `json:"id_tentative"`
 	NumeroTentative int       `json:"numero_tentative"`
@@ -24,3 +32,9 @@ type ResponseEnvoieDTO struct {
 	MessageErreur   *string   `json:"message_erreur"`
 	ReponseServeur  *string   `json:"reponse_serveur"`
 }
+
+//=======================================
+
+// Handlers
+
+//func TentativeEnvoiehandlers(c *gin.Context)

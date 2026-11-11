@@ -4,6 +4,7 @@ import (
 	"log"
 	"strconv"
 
+	email "email-send-API/src/Email"
 	setting "email-send-API/src/Setting"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,7 @@ func main() {
 	router := gin.Default()
 
 	// initialiser les routes
-	setting.RegisterRoutes(router, cfg)
+	email.RegisterRoutes(router)
 
 	// Demarrage du serveur
 	port := strconv.Itoa(cfg.AppPort)
