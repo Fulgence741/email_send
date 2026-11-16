@@ -3,36 +3,69 @@ package main
 import (
 	email "email-send-API/src/Email"
 	setting "email-send-API/src/Setting"
+	"os"
 	"testing"
 )
 
+// TestSendEmailRejectsMissingConfiguration vérifie qu'un client nil échoue proprement.
+func TestSendEmailRejectsMissingConfiguration(t *testing.T) {
+	var client *email.SMTPClient
+	if err := client.SendEmail("to@example.com", "Objet", "Contenu", "TEXT"); err == nil {
+		t.Fatal("un client SMTP sans configuration devrait être refusé")
+	}
+}
+
+// TestSendEmailRejectsInvalidRecipient s'assure qu'une adresse incorrecte n'est pas envoyée.
+func TestSendEmailRejectsInvalidRecipient(t *testing.T) {
+	client := email.NewSMTPClient(&setting.Config{
+		SMTPHost: "smtp.example.com",
+		SMTPFrom: "from@example.com",
+	})
+	if err := client.SendEmail("adresse-invalide", "Objet", "Contenu", "TEXT"); err == nil {
+		t.Fatal("une adresse destinataire invalide devrait être refusée")
+	}
+}
+
+// TestSendEmail est un test d'intégration réel, désactivé sauf activation explicite.
 func TestSendEmail(t *testing.T) {
-	//Récupérer la configuration existente
+	if os.Getenv("SMTP_INTEGRATION_TEST") != "1" {
+		t.Skip("définir SMTP_INTEGRATION_TEST=1 pour envoyer un vrai email")
+	}
 
-	cfg := setting.LoadConfig()
+	cfg, err := setting.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	t.Log("SMTP Host :", cfg.SMTPHost)
-	t.Log("SMTP Port :", cfg.SMTPPort)
-	t.Log("SMTP User :", cfg.SMTPUser)
-	t.Log("SMTP From :", cfg.SMTPFrom)
-	t.Log("Password renseigné :", cfg.SMTPPassword != "")
+	if cfg.SMTPUser == "" {
+		t.Fatal("SMTP_USER est vide")
+	}
 
-	// Créer un client smtp
+	if cfg.SMTPPassword == "" {
+		t.Fatal("SMTP_PASSWORD est vide")
+	}
+
+	if cfg.SMTPFrom == "" {
+		t.Fatal("SMTP_FROM est vide")
+	}
+
+	t.Logf("SMTP Host : %s", cfg.SMTPHost)
+	t.Logf("SMTP Port : %d", cfg.SMTPPort)
+	t.Logf("SMTP User : %s", cfg.SMTPUser)
+	t.Logf("SMTP From : %s", cfg.SMTPFrom)
 
 	client := email.NewSMTPClient(cfg)
 
-	// Envoyer un email test
-
-	err := client.SendEmail(
+	err = client.SendEmail(
 		"reply@sensei.ci",
-		"test SMTP",
-		"Bonjour ceci est un test de mon serveur smtp",
+		"Test SMTP Sensei",
+		"Bonjour, ceci est un test de mon serveur SMTP.",
 		"TEXT",
 	)
 
 	if err != nil {
-		t.Fatalf("Erreur lors de l'enovoie : %v", err)
+		t.Fatalf("Échec de l'envoi SMTP : %v", err)
 	}
 
-	t.Log("Email envoyé avec succès !")
+	t.Log("Email accepté par le serveur SMTP !")
 }

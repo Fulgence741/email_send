@@ -1,65 +1,77 @@
+// Package email expose les routes HTTP et les fonctions liées à l'envoi d'emails.
 package email
 
 import (
+	"errors"
+	"log"
 	"net/http"
-	"time"
+	"strings"
+
+	"email-send-API/src/Database"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Model
-// =========================================
-type Application struct {
-	IDApplication int64     `gorm:"column:primaryKey" json:"id_application"`
-	Nom           string    `gorm:"column:nom;not null" json:"nom"`
-	APIKeyHash    string    `gorm:"-"`
-	Statut        bool      `gorm:"column statut" json:"statut"`
-	DateCreation  time.Time `gorm:"column:date_creation" json:"date_creation"`
-}
-
-func (Application) TableName() string {
-	return "applications"
-}
-
-//==============================================
-
-// DTO
-// =============================================
+// CreateApplicationDTO représente les données acceptées à la création d'une application.
 type CreateApplicationDTO struct {
-	Nom string `json:"nom" binding:"required"`
+	Nom string `json:"nom" binding:"required,max=100"`
 }
 
+// ApplicationResponseDTO expose les informations de création et la clé montrée une fois.
 type ApplicationResponseDTO struct {
 	IDApplication int64  `json:"id_application"`
 	Nom           string `json:"nom"`
-	Statut        bool   `json:"statut"`
+	Statut        string `json:"statut"`
+	APIKey        string `json:"api_key"`
 }
 
-// ============================================
+// AddApplicationHandlers valide la demande, crée l'application et renvoie sa clé API.
+func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var dto CreateApplicationDTO
+		if err := c.ShouldBindJSON(&dto); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Données invalides.",
+				"error":   err.Error(),
+			})
+			return
+		}
 
-// Handlers
+		name := strings.TrimSpace(dto.Nom)
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Le nom de l'application est obligatoire.",
+			})
+			return
+		}
 
-// ajout d'une application
+		application, apiKey, err := repository.CreateApplication(c.Request.Context(), name)
+		if err != nil {
+			if errors.Is(err, database.ErrConflict) {
+				c.JSON(http.StatusConflict, gin.H{
+					"success": false,
+					"message": "Une application portant ce nom existe déjà.",
+				})
+				return
+			}
+			log.Printf("création de l'application impossible: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Impossible de créer l'application.",
+			})
+			return
+		}
 
-func AddApplicationhandlers(c *gin.Context) {
-	var dto CreateApplicationDTO
-
-	// Vérifier les données de l'application
-	if err := c.ShouldBindJSON(&dto); err != nil {
-
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Données invalides.",
-			"error":   err.Error(),
+		c.JSON(http.StatusCreated, gin.H{
+			"success": true,
+			"data": ApplicationResponseDTO{
+				IDApplication: application.IDApplication,
+				Nom:           application.Nom,
+				Statut:        application.Statut,
+				APIKey:        apiKey,
+			},
 		})
-
-		return
 	}
-
-	// Réponse en cas de succès
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Données envoyées avec succès.",
-		"data":    dto,
-	})
 }

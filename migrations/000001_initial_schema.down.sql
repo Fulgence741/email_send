@@ -2,6 +2,8 @@
 -- MIGRATION 000001 : ROLLBACK
 -- ============================================
 
+DROP TABLE IF EXISTS tentatives_envoi;
+
 DROP TABLE IF EXISTS pieces_jointes;
 
 DROP TABLE IF EXISTS emails;

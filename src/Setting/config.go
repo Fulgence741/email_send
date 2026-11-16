@@ -1,13 +1,15 @@
+// Package setting charge et valide la configuration de l'application.
 package setting
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
 )
 
+// Config contient les paramètres du serveur, de PostgreSQL et du relais SMTP.
 type Config struct {
 	AppName string
 	AppEnv  string
@@ -27,57 +29,64 @@ type Config struct {
 	SMTPFrom     string
 }
 
-func LoadConfig() *Config {
-	// Charger le fichier .env
-	if err := godotenv.Load(); err != nil {
-		log.Println("Fichier .env introuvable, utilisation des variables du système")
-	}
-	// Récupérer et convertir le port de l'application en entier
-	AppPort, err := strconv.Atoi(os.Getenv("APP_PORT"))
-	if err != nil {
-		log.Fatal("APP_PORT doit être un entier valide")
+// LoadConfig lit les variables d'environnement et applique les valeurs par défaut.
+// La validation des paramètres propres à PostgreSQL est faite à l'ouverture de la base,
+// afin que les outils qui n'utilisent que SMTP puissent charger cette configuration.
+func LoadConfig() (*Config, error) {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("charger le fichier .env: %w", err)
 	}
 
-	// Récupérer et convertir le port de la base de données en entier
-	DBPort, err := strconv.Atoi(os.Getenv("DB_PORT"))
+	appPort, err := parsePort("APP_PORT", "8080")
 	if err != nil {
-		log.Fatal("DB_PORT doit être un entier valide")
+		return nil, err
+	}
+	dbPort, err := parsePort("DB_PORT", "5432")
+	if err != nil {
+		return nil, err
+	}
+	smtpPort, err := parsePort("SMTP_PORT", "587")
+	if err != nil {
+		return nil, err
 	}
 
-	// Récupérer et convertir le port SMTP en entier
-	SMTPPort, err := strconv.Atoi(os.Getenv("SMTP_PORT"))
-	if err != nil {
-		log.Fatal("SMTP_PORT doit être un entier valide")
-	}
-
-	return &Config{
-		AppName: os.Getenv("APP_NAME"),
-		AppEnv:  os.Getenv("APP_ENV"),
-		AppPort: AppPort,
+	cfg := &Config{
+		AppName: getEnv("APP_NAME", "email-send-API"),
+		AppEnv:  getEnv("APP_ENV", "development"),
+		AppPort: appPort,
 
 		DBHost:     os.Getenv("DB_HOST"),
-		DBPort:     DBPort,
+		DBPort:     dbPort,
 		DBUser:     os.Getenv("DB_USER"),
 		DBPassword: os.Getenv("DB_PASSWORD"),
 		DBName:     os.Getenv("DB_NAME"),
-		DBSSLMode:  os.Getenv("DB_SSLMODE"),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 
 		SMTPHost:     os.Getenv("SMTP_HOST"),
-		SMTPPort:     SMTPPort,
+		SMTPPort:     smtpPort,
 		SMTPUser:     os.Getenv("SMTP_USER"),
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
 	}
 
+	return cfg, nil
 }
 
-// getEnv récupère une variable d'environnement et renvoie sa valeur
-// par défaut si elle n'est pas définie
-
+// getEnv retourne la valeur d'une variable ou son remplacement si elle est absente.
 func getEnv(key, fallback string) string {
 	value := os.Getenv(key)
 	if value == "" {
 		return fallback
 	}
 	return value
+}
+
+// parsePort convertit et valide un port TCP, en utilisant fallback si nécessaire.
+func parsePort(key, fallback string) (int, error) {
+	value := getEnv(key, fallback)
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("%s doit être un port valide compris entre 1 et 65535", key)
+	}
+	return port, nil
 }

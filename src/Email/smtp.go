@@ -10,37 +10,41 @@ import (
 	setting "email-send-API/src/Setting"
 )
 
+// SMTPClient envoie les emails à l'aide de la configuration SMTP fournie.
 type SMTPClient struct {
 	Configuration *setting.Config
 }
 
+// NewSMTPClient crée un client SMTP utilisant cfg pour chaque envoi.
 func NewSMTPClient(cfg *setting.Config) *SMTPClient {
 	return &SMTPClient{
 		Configuration: cfg,
 	}
 }
 
-func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType string) error {
+// SendEmail valide les champs d'en-tête puis remet un message au serveur SMTP.
+func (client *SMTPClient) SendEmail(recipientAddress, subject, body, contentType string) error {
+	if client == nil || client.Configuration == nil {
+		return fmt.Errorf("configuration SMTP absente")
+	}
 
-	// Récupération de la configuration
 	host := client.Configuration.SMTPHost
+	if host == "" {
+		return fmt.Errorf("hôte SMTP absent")
+	}
 
-	// Construction de l'adresse réseau complète
 	address := net.JoinHostPort(host, fmt.Sprint(client.Configuration.SMTPPort))
 
-	// Vérifier les adresses email de l'expéditeur
 	from, err := mail.ParseAddress(client.Configuration.SMTPFrom)
 	if err != nil {
 		return fmt.Errorf("adresse expéditeur invalide : %w", err)
 	}
 
-	// vérifier adresse email du destinataire
-	recipient, err := mail.ParseAddress(expediteur)
+	recipient, err := mail.ParseAddress(recipientAddress)
 	if err != nil {
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
 	}
 
-	// Éviter l'injection d'en-têtes
 	if strings.ContainsAny(subject, "\r\n") {
 		return fmt.Errorf("objet email invalide")
 	}
@@ -49,12 +53,12 @@ func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType strin
 		return fmt.Errorf("type de contenu invalide")
 	}
 
+	// Le type MIME dépend du format accepté par le contrat HTTP.
 	mimeType := "text/plain"
 	if contentType == "HTML" {
 		mimeType = "text/html"
 	}
 
-	// Construire le message
 	message := []byte(
 		"From: " + from.String() + "\r\n" +
 			"To: " + recipient.String() + "\r\n" +
@@ -65,7 +69,6 @@ func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType strin
 			body,
 	)
 
-	// Authentification SMTP
 	auth := smtp.PlainAuth(
 		"",
 		client.Configuration.SMTPUser,
@@ -73,7 +76,6 @@ func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType strin
 		host,
 	)
 
-	// Envoi du mail
 	err = smtp.SendMail(
 		address,
 		auth,

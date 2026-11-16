@@ -1,41 +1,46 @@
+// Package main assemble la configuration, les routes et les dépendances de l'API.
 package main
 
 import (
+	"errors"
 	"log"
 	"strconv"
 
+	"email-send-API/src/Database"
 	email "email-send-API/src/Email"
 	setting "email-send-API/src/Setting"
 
 	"github.com/gin-gonic/gin"
 )
 
+// main démarre l'API et arrête le processus si son initialisation échoue.
 func main() {
-	// Charger la configuration
-	cfg := setting.LoadConfig()
-
-	db, err := setting.ConnectDB(cfg)
-	if err != nil {
+	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
 
-	// Récupérer l'instance *sql.DB pour gérer la connexion
-	sqlDB, err := db.DB()
+// run charge la configuration, ouvre la base de données et démarre le serveur HTTP.
+// La connexion est fermée même si le serveur s'arrête avec une erreur.
+func run() (runErr error) {
+	cfg, err := setting.LoadConfig()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// Fermer la connexion à la base de données lorsque l'application se termine
-	defer sqlDB.Close()
+	repository, err := database.Open(cfg)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := repository.Close(); closeErr != nil {
+			runErr = errors.Join(runErr, closeErr)
+		}
+	}()
+
 	router := gin.Default()
+	email.RegisterRoutes(router, repository)
 
-	// initialiser les routes
-	email.RegisterRoutes(router)
-
-	// Demarrage du serveur
 	port := strconv.Itoa(cfg.AppPort)
-
-	if err := router.Run(":" + port); err != nil {
-		log.Fatal(err)
-	}
+	return router.Run(":" + port)
 }
