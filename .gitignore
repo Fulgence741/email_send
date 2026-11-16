@@ -17,3 +17,6 @@
 
 # Fichiers temporaires
 tmp/
+
+# Pièces jointes déposées par l'API
+storage/attachments/

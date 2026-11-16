@@ -22,6 +22,14 @@ type Config struct {
 	DBName     string
 	DBSSLMode  string
 
+	AdresseRedis    string
+	MotDePasseRedis string
+	BaseRedis       int
+
+	LimiteCreationApplication int
+	LimiteAPI                 int
+	RepertoirePiecesJointes   string
+
 	SMTPHost     string
 	SMTPPort     int
 	SMTPUser     string
@@ -49,6 +57,18 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	baseRedis, err := parseEntierPositifOuNul("REDIS_DB", "0")
+	if err != nil {
+		return nil, err
+	}
+	limiteCreationApplication, err := parseEntierPositif("RATE_LIMIT_APPLICATIONS_PER_MINUTE", "10")
+	if err != nil {
+		return nil, err
+	}
+	limiteAPI, err := parseEntierPositif("RATE_LIMIT_API_PER_MINUTE", "60")
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		AppName: getEnv("APP_NAME", "email-send-API"),
@@ -61,6 +81,14 @@ func LoadConfig() (*Config, error) {
 		DBPassword: os.Getenv("DB_PASSWORD"),
 		DBName:     os.Getenv("DB_NAME"),
 		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+
+		AdresseRedis:    getEnv("REDIS_ADDR", "127.0.0.1:6379"),
+		MotDePasseRedis: os.Getenv("REDIS_PASSWORD"),
+		BaseRedis:       baseRedis,
+
+		LimiteCreationApplication: limiteCreationApplication,
+		LimiteAPI:                 limiteAPI,
+		RepertoirePiecesJointes:   getEnv("ATTACHMENTS_DIR", "storage/attachments"),
 
 		SMTPHost:     os.Getenv("SMTP_HOST"),
 		SMTPPort:     smtpPort,
@@ -89,4 +117,24 @@ func parsePort(key, fallback string) (int, error) {
 		return 0, fmt.Errorf("%s doit être un port valide compris entre 1 et 65535", key)
 	}
 	return port, nil
+}
+
+// parseEntierPositifOuNul lit un entier supérieur ou égal à zéro.
+func parseEntierPositifOuNul(key, fallback string) (int, error) {
+	value := getEnv(key, fallback)
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s doit être un entier positif ou nul", key)
+	}
+	return parsed, nil
+}
+
+// parseEntierPositif lit un entier strictement supérieur à zéro.
+func parseEntierPositif(key, fallback string) (int, error) {
+	value := getEnv(key, fallback)
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("%s doit être un entier strictement positif", key)
+	}
+	return parsed, nil
 }

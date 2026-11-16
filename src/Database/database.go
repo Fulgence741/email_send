@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Application représente une application autorisée à utiliser l'API.
@@ -38,17 +39,21 @@ func (Application) TableName() string {
 
 // Email représente un message persistant en attente de traitement.
 type Email struct {
-	IDEmail           int64      `gorm:"primaryKey;column:id_email" json:"id_email"`
-	IDApplication     int64      `gorm:"column:id_application;not null" json:"id_application"`
-	Destinataire      string     `gorm:"column:destinataire;not null" json:"destinataire"`
-	Objet             string     `gorm:"column:objet;not null" json:"objet"`
-	Message           string     `gorm:"column:message;not null" json:"message"`
-	TypeContenu       string     `gorm:"column:type_contenu;not null" json:"type_contenu"`
-	Statut            string     `gorm:"column:statut;not null" json:"statut"`
-	CleIdempotence    string     `gorm:"column:cle_idempotence;not null" json:"-"`
-	DateCreation      time.Time  `gorm:"column:date_creation;not null" json:"date_creation"`
-	DateFinTraitement *time.Time `gorm:"column:date_fin_traitement" json:"date_fin_traitement,omitempty"`
-	MessageErreur     *string    `gorm:"column:message_erreur" json:"message_erreur,omitempty"`
+	IDEmail                int64      `gorm:"primaryKey;column:id_email" json:"id_email"`
+	IDApplication          int64      `gorm:"column:id_application;not null" json:"id_application"`
+	Destinataire           string     `gorm:"column:destinataire;not null" json:"destinataire"`
+	Objet                  string     `gorm:"column:objet;not null" json:"objet"`
+	Message                string     `gorm:"column:message;not null" json:"message"`
+	TypeContenu            string     `gorm:"column:type_contenu;not null" json:"type_contenu"`
+	Statut                 string     `gorm:"column:statut;not null" json:"statut"`
+	CleIdempotence         string     `gorm:"column:cle_idempotence;not null" json:"-"`
+	NombreMaxTentatives    int        `gorm:"column:nombre_max_tentatives;not null;default:3" json:"-"`
+	DelaiRetrySecondes     int        `gorm:"column:delai_retry_secondes;not null;default:60" json:"-"`
+	DateCreation           time.Time  `gorm:"column:date_creation;not null" json:"date_creation"`
+	DateDebutTraitement    *time.Time `gorm:"column:date_debut_traitement" json:"-"`
+	DateFinTraitement      *time.Time `gorm:"column:date_fin_traitement" json:"date_fin_traitement,omitempty"`
+	DateProchaineTentative *time.Time `gorm:"column:date_prochaine_tentative" json:"-"`
+	MessageErreur          *string    `gorm:"column:message_erreur" json:"message_erreur,omitempty"`
 }
 
 // TableName associe Email à la table existante de la migration PostgreSQL.
@@ -89,6 +94,9 @@ func (Envoie) TableName() string {
 }
 
 var ErrConflict = errors.New("conflit de données") // ErrConflict est utilisé pour signaler une violation de contrainte d'unicité.
+
+// ErrAucunEmailEnAttente indique que la file ne contient aucun email prêt à être envoyé.
+var ErrAucunEmailEnAttente = errors.New("aucun email en attente")
 
 // Repository regroupe les opérations de persistance utilisées par l'API.
 type Repository struct {
@@ -162,6 +170,18 @@ func (r *Repository) Close() error {
 	// Ferme la connexion SQL et renvoie toute erreur rencontrée.
 	if err := sqlDB.Close(); err != nil {
 		return fmt.Errorf("fermer la connexion PostgreSQL: %w", err)
+	}
+	return nil
+}
+
+// VerifierConnexion confirme que PostgreSQL répond.
+func (r *Repository) VerifierConnexion(ctx context.Context) error {
+	baseSQL, err := r.db.DB()
+	if err != nil {
+		return fmt.Errorf("récupérer la connexion PostgreSQL: %w", err)
+	}
+	if err := baseSQL.PingContext(ctx); err != nil {
+		return fmt.Errorf("vérifier la connexion PostgreSQL: %w", err)
 	}
 	return nil
 }
@@ -242,6 +262,285 @@ func (r *Repository) CreateEmail(ctx context.Context, email *Email) (bool, error
 		return false, nil
 	}
 	return true, nil
+}
+
+// CreerEmailAvecPiecesJointes enregistre l'email et ses fichiers dans une transaction.
+func (r *Repository) CreerEmailAvecPiecesJointes(ctx context.Context, email *Email, pieces []PieceJointe) (bool, error) {
+	nouvelEmail := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		resultat := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id_application"}, {Name: "cle_idempotence"}},
+			DoNothing: true,
+		}).Create(email)
+		if resultat.Error != nil {
+			return fmt.Errorf("enregistrer l'email: %w", resultat.Error)
+		}
+		if resultat.RowsAffected == 0 {
+			// Une répétition idempotente renvoie l'email existant sans interrompre la transaction.
+			var existant Email
+			if lookupErr := tx.Where("id_application = ? AND cle_idempotence = ?", email.IDApplication, email.CleIdempotence).
+				First(&existant).Error; lookupErr != nil {
+				return fmt.Errorf("retrouver l'email existant: %w", lookupErr)
+			}
+			if existant.Destinataire != email.Destinataire ||
+				existant.Objet != email.Objet ||
+				existant.Message != email.Message ||
+				existant.TypeContenu != email.TypeContenu {
+				return fmt.Errorf("%w: cette clé d'idempotence est associée à un autre email", ErrConflict)
+			}
+			var piecesExistantes []PieceJointe
+			if err := tx.Where("id_email = ?", existant.IDEmail).
+				Order("id_piece_jointe ASC").
+				Find(&piecesExistantes).Error; err != nil {
+				return fmt.Errorf("comparer les pièces jointes existantes: %w", err)
+			}
+			if len(piecesExistantes) != len(pieces) {
+				return fmt.Errorf("%w: les pièces jointes ne correspondent pas à la demande initiale", ErrConflict)
+			}
+			for index, piece := range pieces {
+				pieceExistante := piecesExistantes[index]
+				if pieceExistante.NomFichier != piece.NomFichier ||
+					pieceExistante.TypeMIME != piece.TypeMIME ||
+					pieceExistante.TailleFichier != piece.TailleFichier {
+					return fmt.Errorf("%w: les pièces jointes ne correspondent pas à la demande initiale", ErrConflict)
+				}
+			}
+			*email = existant
+			return nil
+		}
+
+		// Les pièces jointes ne deviennent visibles qu'après l'insertion de leur email parent.
+		for index := range pieces {
+			pieces[index].IDEmail = email.IDEmail
+			if err := tx.Create(&pieces[index]).Error; err != nil {
+				return fmt.Errorf("enregistrer la pièce jointe: %w", err)
+			}
+		}
+		nouvelEmail = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return nouvelEmail, nil
+}
+
+// ListerPiecesJointes retourne les métadonnées des fichiers liés à un email.
+func (r *Repository) ListerPiecesJointes(ctx context.Context, idEmail int64) ([]PieceJointe, error) {
+	var pieces []PieceJointe
+	if err := r.db.WithContext(ctx).
+		Where("id_email = ?", idEmail).
+		Order("id_piece_jointe ASC").
+		Find(&pieces).Error; err != nil {
+		return nil, fmt.Errorf("lister les pièces jointes: %w", err)
+	}
+	return pieces, nil
+}
+
+// RechercherPieceJointe retrouve un fichier sans sortir du périmètre de l'email.
+func (r *Repository) RechercherPieceJointe(ctx context.Context, idEmail, idPiece int64) (*PieceJointe, error) {
+	var piece PieceJointe
+	if err := r.db.WithContext(ctx).
+		Where("id_email = ? AND id_piece_jointe = ?", idEmail, idPiece).
+		First(&piece).Error; err != nil {
+		return nil, err
+	}
+	return &piece, nil
+}
+
+// ReclamerProchainEmail réserve atomiquement le prochain email éligible à l'envoi.
+func (r *Repository) ReclamerProchainEmail(ctx context.Context) (*Email, []PieceJointe, *Envoie, error) {
+	var email Email
+	var pieces []PieceJointe
+	var tentative Envoie
+	emailEpuise := false
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		maintenant := time.Now().UTC()
+		resultat := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("(statut = ? AND (date_prochaine_tentative IS NULL OR date_prochaine_tentative <= ?)) OR (statut = ? AND date_debut_traitement < ?)",
+				"PENDING", maintenant, "SENDING", maintenant.Add(-time.Minute)).
+			Order("date_creation ASC, id_email ASC").
+			Limit(1).
+			Find(&email)
+		if resultat.Error != nil {
+			return fmt.Errorf("rechercher un email en attente: %w", resultat.Error)
+		}
+		if resultat.RowsAffected == 0 {
+			return ErrAucunEmailEnAttente
+		}
+		if email.Statut == "SENDING" {
+			erreurInterruption := "Traitement interrompu avant la fin de l'envoi."
+			if err := tx.Model(&Envoie{}).
+				Where("id_email = ? AND statut = ?", email.IDEmail, "EN_COURS").
+				Updates(map[string]interface{}{
+					"statut":         "ECHEC",
+					"message_erreur": erreurInterruption,
+				}).Error; err != nil {
+				return fmt.Errorf("clôturer la tentative interrompue: %w", err)
+			}
+		}
+
+		var derniereTentative int
+		if err := tx.Model(&Envoie{}).
+			Where("id_email = ?", email.IDEmail).
+			Select("COALESCE(MAX(numero_tentative), 0)").
+			Scan(&derniereTentative).Error; err != nil {
+			return fmt.Errorf("compter les tentatives d'envoi: %w", err)
+		}
+		if derniereTentative >= email.NombreMaxTentatives {
+			maintenant = time.Now().UTC()
+			if err := tx.Model(&Email{}).Where("id_email = ?", email.IDEmail).Updates(map[string]interface{}{
+				"statut":                   "FAILED",
+				"date_fin_traitement":      maintenant,
+				"date_prochaine_tentative": nil,
+				"message_erreur":           "Nombre maximal de tentatives atteint.",
+			}).Error; err != nil {
+				return fmt.Errorf("clôturer l'email sans tentative restante: %w", err)
+			}
+			emailEpuise = true
+			return nil
+		}
+
+		maintenant = time.Now().UTC()
+		if err := tx.Model(&Email{}).Where("id_email = ?", email.IDEmail).Updates(map[string]interface{}{
+			"statut":                   "SENDING",
+			"date_debut_traitement":    maintenant,
+			"date_fin_traitement":      nil,
+			"date_prochaine_tentative": nil,
+		}).Error; err != nil {
+			return fmt.Errorf("réserver l'email pour traitement: %w", err)
+		}
+		email.Statut = "SENDING"
+		email.DateDebutTraitement = &maintenant
+		tentative = Envoie{
+			IDEmail:         email.IDEmail,
+			NumeroTentative: derniereTentative + 1,
+			DateTentative:   maintenant,
+			Statut:          "EN_COURS",
+		}
+		if err := tx.Create(&tentative).Error; err != nil {
+			return fmt.Errorf("créer la tentative d'envoi: %w", err)
+		}
+		if err := tx.Where("id_email = ?", email.IDEmail).Order("id_piece_jointe ASC").Find(&pieces).Error; err != nil {
+			return fmt.Errorf("charger les pièces jointes: %w", err)
+		}
+		return nil
+	})
+	if errors.Is(err, ErrAucunEmailEnAttente) || (err == nil && emailEpuise) {
+		return nil, nil, nil, ErrAucunEmailEnAttente
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &email, pieces, &tentative, nil
+}
+
+// FinaliserTentative met à jour la tentative et planifie une reprise si nécessaire.
+func (r *Repository) FinaliserTentative(ctx context.Context, idEmail, idTentative int64, erreurEnvoi error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var email Email
+		if err := tx.First(&email, "id_email = ?", idEmail).Error; err != nil {
+			return fmt.Errorf("retrouver l'email à finaliser: %w", err)
+		}
+		var tentative Envoie
+		if err := tx.First(&tentative, "id_tentative = ? AND id_email = ?", idTentative, idEmail).Error; err != nil {
+			return fmt.Errorf("retrouver la tentative à finaliser: %w", err)
+		}
+
+		maintenant := time.Now().UTC()
+		if erreurEnvoi == nil {
+			if err := tx.Model(&Envoie{}).Where("id_tentative = ?", idTentative).Updates(map[string]interface{}{
+				"statut": "REUSSIE",
+			}).Error; err != nil {
+				return fmt.Errorf("clôturer la tentative réussie: %w", err)
+			}
+			if err := tx.Model(&Email{}).Where("id_email = ?", idEmail).Updates(map[string]interface{}{
+				"statut":                   "SENT",
+				"date_fin_traitement":      maintenant,
+				"date_prochaine_tentative": nil,
+				"message_erreur":           nil,
+			}).Error; err != nil {
+				return fmt.Errorf("marquer l'email comme envoyé: %w", err)
+			}
+			return nil
+		}
+
+		messageErreur := erreurEnvoi.Error()
+		if err := tx.Model(&Envoie{}).Where("id_tentative = ?", idTentative).Updates(map[string]interface{}{
+			"statut":         "ECHEC",
+			"message_erreur": messageErreur,
+		}).Error; err != nil {
+			return fmt.Errorf("enregistrer l'échec de la tentative: %w", err)
+		}
+		if tentative.NumeroTentative >= email.NombreMaxTentatives {
+			if err := tx.Model(&Email{}).Where("id_email = ?", idEmail).Updates(map[string]interface{}{
+				"statut":                   "FAILED",
+				"date_fin_traitement":      maintenant,
+				"date_prochaine_tentative": nil,
+				"message_erreur":           messageErreur,
+			}).Error; err != nil {
+				return fmt.Errorf("marquer l'email comme échoué: %w", err)
+			}
+			return nil
+		}
+
+		prochaineTentative := maintenant.Add(time.Duration(email.DelaiRetrySecondes) * time.Second)
+		if err := tx.Model(&Email{}).Where("id_email = ?", idEmail).Updates(map[string]interface{}{
+			"statut":                   "PENDING",
+			"date_fin_traitement":      nil,
+			"date_prochaine_tentative": prochaineTentative,
+			"message_erreur":           messageErreur,
+		}).Error; err != nil {
+			return fmt.Errorf("planifier la prochaine tentative: %w", err)
+		}
+		return nil
+	})
+}
+
+// ListerEmails retourne les emails d'une application du plus récent au plus ancien.
+func (r *Repository) ListerEmails(ctx context.Context, idApplication int64, limite, decalage int, statut string) ([]Email, int64, error) {
+	requete := r.db.WithContext(ctx).Model(&Email{}).Where("id_application = ?", idApplication)
+	if statut != "" {
+		requete = requete.Where("statut = ?", statut)
+	}
+
+	var total int64
+	if err := requete.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("compter les emails: %w", err)
+	}
+
+	var emails []Email
+	if err := requete.Order("date_creation DESC, id_email DESC").
+		Limit(limite).
+		Offset(decalage).
+		Find(&emails).Error; err != nil {
+		return nil, 0, fmt.Errorf("lister les emails: %w", err)
+	}
+	return emails, total, nil
+}
+
+// RechercherEmailParID respecte la propriété de l'application lors de la recherche.
+func (r *Repository) RechercherEmailParID(ctx context.Context, idApplication, idEmail int64) (*Email, error) {
+	var email Email
+	if err := r.db.WithContext(ctx).
+		Where("id_application = ? AND id_email = ?", idApplication, idEmail).
+		First(&email).Error; err != nil {
+		return nil, err
+	}
+	return &email, nil
+}
+
+// ListerTentativesEmail retourne les tentatives dans l'ordre chronologique.
+func (r *Repository) ListerTentativesEmail(ctx context.Context, idEmail int64) ([]Envoie, error) {
+	var tentatives []Envoie
+	if err := r.db.WithContext(ctx).
+		Where("id_email = ?", idEmail).
+		Order("numero_tentative ASC").
+		Find(&tentatives).Error; err != nil {
+		return nil, fmt.Errorf("lister les tentatives d'envoi: %w", err)
+	}
+	return tentatives, nil
 }
 
 // IsNotFound indique si la recherche GORM n'a trouvé aucun enregistrement.
