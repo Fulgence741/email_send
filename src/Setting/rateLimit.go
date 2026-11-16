@@ -56,11 +56,13 @@ func LimiteurDeDebit(stockage StockageLimiteDebit, limite int, fenetre time.Dura
 		if delai > 0 {
 			c.Header("X-RateLimit-Reset", strconv.FormatInt(int64(math.Ceil(delai.Seconds())), 10))
 		}
+		// Si la limite est dépassée, renvoie un code 429 avec le délai avant réessai.
 		if !autorisee {
 			secondes := int64(math.Ceil(delai.Seconds()))
 			if secondes < 1 {
 				secondes = 1
 			}
+			// Indique au client combien de temps attendre avant de réessayer.
 			c.Header("Retry-After", strconv.FormatInt(secondes, 10))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"success": false,
@@ -69,6 +71,7 @@ func LimiteurDeDebit(stockage StockageLimiteDebit, limite int, fenetre time.Dura
 			})
 			return
 		}
+		// La requête est autorisée, passe au handler suivant.
 		c.Next()
 	}
 }

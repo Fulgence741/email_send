@@ -22,11 +22,13 @@ func Ouvrir(cfg *setting.Config) (*ClientRedis, error) {
 		return nil, errors.New("configuration Redis absente")
 	}
 
+	// Crée le client Redis avec les paramètres de configuration.
 	client := goredis.NewClient(&goredis.Options{
 		Addr:     cfg.AdresseRedis,
 		Password: cfg.MotDePasseRedis,
 		DB:       cfg.BaseRedis,
 	})
+	// Vérifie la connexion avec un ping, en utilisant un contexte avec délai.
 	contexte, annuler := context.WithTimeout(context.Background(), 5*time.Second)
 	defer annuler()
 	if err := client.Ping(contexte).Err(); err != nil {
@@ -66,6 +68,7 @@ end
 end
 	return {nombre, delai}
 `
+	// Le script Redis incrémente le compteur et définit l'expiration si c'est la première requête.
 	if c == nil || c.client == nil {
 		return false, 0, 0, errors.New("client Redis indisponible")
 	}
@@ -76,15 +79,17 @@ end
 	if len(resultat) != 2 {
 		return false, 0, 0, errors.New("réponse Redis invalide pour la limite de débit")
 	}
+	// Les valeurs renvoyées par Redis sont converties en types Go.
 	nombre, nombreValide := resultat[0].(int64)
 	delaiMillisecondes, delaiValide := resultat[1].(int64)
 	if !nombreValide || !delaiValide || delaiMillisecondes < 0 {
 		return false, 0, 0, errors.New("valeurs Redis invalides pour la limite de débit")
 	}
-
+	// Calcule le quota restant et renvoie les résultats.
 	restante := int64(limite) - nombre
 	if restante < 0 {
 		restante = 0
 	}
+	// Renvoie true si la requête est autorisée, le quota restant et le délai avant réinitialisation.
 	return nombre <= int64(limite), restante, time.Duration(delaiMillisecondes) * time.Millisecond, nil
 }

@@ -23,6 +23,7 @@ func IdentifiantRequete() gin.HandlerFunc {
 				})
 				return
 			}
+			// Encode les octets aléatoires en hexadécimal pour obtenir un identifiant sûr.
 			identifiant = hex.EncodeToString(octets)
 		}
 		c.Set("identifiant_requete", identifiant)
@@ -61,6 +62,7 @@ func identifiantValide(identifiant string) bool {
 	if identifiant == "" || len(identifiant) > 128 {
 		return false
 	}
+	// Autorise uniquement les lettres, chiffres, tirets et underscores pour éviter les problèmes d'en-tête HTTP.
 	for _, caractere := range identifiant {
 		if !(caractere >= 'a' && caractere <= 'z') &&
 			!(caractere >= 'A' && caractere <= 'Z') &&

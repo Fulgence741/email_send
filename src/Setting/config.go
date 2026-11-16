@@ -45,6 +45,7 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("charger le fichier .env: %w", err)
 	}
 
+	// Lit et valide les ports et les limites de débit.
 	appPort, err := parsePort("APP_PORT", "8080")
 	if err != nil {
 		return nil, err
@@ -70,6 +71,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
+	// Crée la configuration finale avec les valeurs lues et validées.
 	cfg := &Config{
 		AppName: getEnv("APP_NAME", "email-send-API"),
 		AppEnv:  getEnv("APP_ENV", "development"),

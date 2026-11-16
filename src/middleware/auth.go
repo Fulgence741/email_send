@@ -54,6 +54,7 @@ func ApplicationAuthentifiee(c *gin.Context) *database.Application {
 	if !existe {
 		return nil
 	}
+	// L'application est stockée dans le contexte, mais doit être convertie en type correct.
 	application, valide := valeur.(*database.Application)
 	if !valide {
 		return nil
