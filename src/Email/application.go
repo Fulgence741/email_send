@@ -2,12 +2,11 @@
 package email
 
 import (
+	database "email-send-API/src/Database"
 	"errors"
 	"log"
 	"net/http"
 	"strings"
-
-	"email-send-API/src/Database"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +27,7 @@ type ApplicationResponseDTO struct {
 // AddApplicationHandlers valide la demande, crée l'application et renvoie sa clé API.
 func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Valide les données JSON entrantes et renvoie une erreur si elles sont invalides.
 		var dto CreateApplicationDTO
 		if err := c.ShouldBindJSON(&dto); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -38,6 +38,7 @@ func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
 			return
 		}
 
+		// Valide le nom de l'application pour s'assurer qu'il n'est pas vide après suppression des espaces.
 		name := strings.TrimSpace(dto.Nom)
 		if name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -47,6 +48,7 @@ func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
 			return
 		}
 
+		// Crée l'application dans la base de données et récupère l'ID et la clé API.
 		application, apiKey, err := repository.CreateApplication(c.Request.Context(), name)
 		if err != nil {
 			if errors.Is(err, database.ErrConflict) {
@@ -56,6 +58,7 @@ func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
 				})
 				return
 			}
+			// Log l'erreur côté serveur pour le débogage et renvoie une réponse générique.
 			log.Printf("création de l'application impossible: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
@@ -63,7 +66,7 @@ func AddApplicationHandlers(repository *database.Repository) gin.HandlerFunc {
 			})
 			return
 		}
-
+		// Renvoie les détails de l'application créée et la clé API au client.
 		c.JSON(http.StatusCreated, gin.H{
 			"success": true,
 			"data": ApplicationResponseDTO{

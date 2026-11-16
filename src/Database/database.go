@@ -88,9 +88,7 @@ func (Envoie) TableName() string {
 	return "tentatives_envoi"
 }
 
-// ErrConflict signale une collision de nom ou une clé d'idempotence réutilisée
-// avec un contenu différent.
-var ErrConflict = errors.New("conflit de données")
+var ErrConflict = errors.New("conflit de données") // ErrConflict est utilisé pour signaler une violation de contrainte d'unicité.
 
 // Repository regroupe les opérations de persistance utilisées par l'API.
 type Repository struct {
@@ -102,6 +100,7 @@ func Open(cfg *setting.Config) (*Repository, error) {
 	if cfg == nil {
 		return nil, errors.New("configuration de la base de données absente")
 	}
+	// Vérifie que les paramètres essentiels sont présents et valides.
 	for _, field := range []struct {
 		name  string
 		value string
@@ -110,37 +109,42 @@ func Open(cfg *setting.Config) (*Repository, error) {
 		{name: "DB_USER", value: cfg.DBUser},
 		{name: "DB_NAME", value: cfg.DBName},
 	} {
+		// Si un champ essentiel est vide, renvoie une erreur descriptive.
 		if field.value == "" {
 			return nil, fmt.Errorf("%s est obligatoire", field.name)
 		}
 	}
-	if cfg.DBPort < 1 || cfg.DBPort > 65535 {
+	// Vérifie que le port est dans la plage valide pour TCP.
+	if cfg.DBPort < 1 || cfg.DBPort > 65535 { // Si le port est hors de la plage valide, renvoie une erreur.
 		return nil, errors.New("DB_PORT doit être compris entre 1 et 65535")
 	}
 
+	// Construit l'URL de connexion PostgreSQL à partir des paramètres de configuration.
 	dsnURL := url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(cfg.DBUser, cfg.DBPassword),
 		Host:   net.JoinHostPort(cfg.DBHost, strconv.Itoa(cfg.DBPort)),
 		Path:   "/" + cfg.DBName,
 	}
+	// Ajoute le paramètre sslmode à l'URL de connexion pour contrôler la sécurité SSL.
 	query := dsnURL.Query()
 	query.Set("sslmode", cfg.DBSSLMode)
 	dsnURL.RawQuery = query.Encode()
 
+	// Ouvre la connexion GORM à PostgreSQL en utilisant l'URL construite.
 	db, err := gorm.Open(postgres.Open(dsnURL.String()), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("ouvrir la connexion PostgreSQL: %w", err)
 	}
-
+	// Récupère l'objet sql.DB sous-jacent pour effectuer des opérations de bas niveau.
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("récupérer la connexion PostgreSQL: %w", err)
 	}
-
+	// Définit un délai d'attente pour le ping de la base de données afin de vérifier la connectivité.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
+	// Effectue un ping à la base de données pour s'assurer qu'elle est accessible et répond correctement.
 	if err := sqlDB.PingContext(ctx); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("vérifier la connexion PostgreSQL: %w", err)
@@ -155,6 +159,7 @@ func (r *Repository) Close() error {
 	if err != nil {
 		return fmt.Errorf("récupérer la connexion PostgreSQL: %w", err)
 	}
+	// Ferme la connexion SQL et renvoie toute erreur rencontrée.
 	if err := sqlDB.Close(); err != nil {
 		return fmt.Errorf("fermer la connexion PostgreSQL: %w", err)
 	}
@@ -164,12 +169,14 @@ func (r *Repository) Close() error {
 // CreateApplication crée une application et ne renvoie sa clé API qu'une seule fois.
 func (r *Repository) CreateApplication(ctx context.Context, name string) (*Application, string, error) {
 	keyBytes := make([]byte, 32)
+	// Génère 32 octets aléatoires pour la clé API. Si la génération échoue, renvoie une erreur.
 	if _, err := rand.Read(keyBytes); err != nil {
 		return nil, "", fmt.Errorf("générer la clé API: %w", err)
 	}
-
+	// Encode la clé API en base64 URL-safe et calcule son condensat SHA-256 pour le stockage sécurisé.
 	apiKey := base64.RawURLEncoding.EncodeToString(keyBytes)
 	keyHash := sha256.Sum256([]byte(apiKey))
+	// Crée un nouvel enregistrement Application avec le nom fourni, le condensat de la clé API, le statut actif et la date de création actuelle.
 	application := Application{
 		Nom:          name,
 		APIKeyHash:   hex.EncodeToString(keyHash[:]),
@@ -177,49 +184,60 @@ func (r *Repository) CreateApplication(ctx context.Context, name string) (*Appli
 		DateCreation: time.Now().UTC(),
 	}
 
+	// Tente d'insérer l'application dans la base de données. Si une violation de contrainte d'unicité se produit, renvoie ErrConflict.
 	if err := r.db.WithContext(ctx).Create(&application).Error; err != nil {
 		if isUniqueViolation(err) {
 			return nil, "", fmt.Errorf("%w: l'application existe déjà", ErrConflict)
 		}
+		// Si une autre erreur survient lors de l'insertion, renvoie une erreur descriptive.
 		return nil, "", fmt.Errorf("créer l'application: %w", err)
 	}
+	//
 	return &application, apiKey, nil
 }
 
 // FindApplicationByAPIKey compare le condensat de la clé et ignore les applications inactives.
 func (r *Repository) FindApplicationByAPIKey(ctx context.Context, apiKey string) (*Application, error) {
 	keyHash := sha256.Sum256([]byte(apiKey))
+	// Rechercher l'application dans la base de données en comparant le condensat de la clé API et en filtrant par statut actif.
 	var application Application
 	err := r.db.WithContext(ctx).
+		// Utilise la clause WHERE pour filtrer les applications par le condensat de la clé API et le statut "ACTIF".
 		Where("api_key_hash = ? AND statut = ?", hex.EncodeToString(keyHash[:]), "ACTIF").
 		First(&application).Error
 	if err != nil {
 		return nil, err
 	}
+	// Si l'application est trouvée, renvoie un pointeur vers l'objet Application et nil pour l'erreur.
 	return &application, nil
 }
 
 // CreateEmail enregistre un email ou reconnaît une nouvelle tentative idempotente.
 // Le booléen indique si une nouvelle ligne a été créée.
 func (r *Repository) CreateEmail(ctx context.Context, email *Email) (bool, error) {
+	// Tente d'insérer l'email dans la base de données. Si une violation de contrainte d'unicité se produit,
+	//  vérifie si les détails correspondent à un email existant.
 	if err := r.db.WithContext(ctx).Create(email).Error; err != nil {
 		if !isUniqueViolation(err) {
 			return false, fmt.Errorf("enregistrer l'email: %w", err)
 		}
-
+		// Si une violation de contrainte d'unicité se produit, recherche l'email existant avec la même clé d'idempotence.
 		var existing Email
 		lookupErr := r.db.WithContext(ctx).
 			Where("id_application = ? AND cle_idempotence = ?", email.IDApplication, email.CleIdempotence).
 			First(&existing).Error
+		// Si une erreur survient lors de la recherche de l'email existant, renvoie une erreur descriptive.
 		if lookupErr != nil {
 			return false, fmt.Errorf("retrouver l'email déjà enregistré: %w", lookupErr)
 		}
+		// Si les détails de l'email existant ne correspondent pas à ceux de l'email en cours d'enregistrement, renvoie ErrConflict.
 		if existing.Destinataire != email.Destinataire ||
 			existing.Objet != email.Objet ||
 			existing.Message != email.Message ||
 			existing.TypeContenu != email.TypeContenu {
 			return false, fmt.Errorf("%w: cette clé d'idempotence est associée à un autre email", ErrConflict)
 		}
+		// Si les détails correspondent, met à jour l'objet email avec l'ID et le statut de l'email existant.
 		*email = existing
 		return false, nil
 	}

@@ -69,6 +69,7 @@ func (client *SMTPClient) SendEmail(recipientAddress, subject, body, contentType
 			body,
 	)
 
+	// L'authentification SMTP est nécessaire pour la plupart des serveurs.
 	auth := smtp.PlainAuth(
 		"",
 		client.Configuration.SMTPUser,
@@ -76,6 +77,7 @@ func (client *SMTPClient) SendEmail(recipientAddress, subject, body, contentType
 		host,
 	)
 
+	// Envoie l'email via le serveur SMTP configuré.
 	err = smtp.SendMail(
 		address,
 		auth,
@@ -84,6 +86,7 @@ func (client *SMTPClient) SendEmail(recipientAddress, subject, body, contentType
 		message,
 	)
 
+	// Retourne une erreur si l'envoi échoue, sinon nil.
 	if err != nil {
 		return fmt.Errorf("erreur envoi SMTP : %w", err)
 	}

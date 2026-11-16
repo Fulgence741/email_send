@@ -32,30 +32,45 @@ func TestSendEmail(t *testing.T) {
 		t.Skip("définir SMTP_INTEGRATION_TEST=1 pour envoyer un vrai email")
 	}
 
+	// Charge la configuration depuis les variables d'environnement.
 	cfg, err := setting.LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// Vérifie que les variables d'environnement SMTP sont présentes.
 	if cfg.SMTPUser == "" {
 		t.Fatal("SMTP_USER est vide")
 	}
-
+	// Vérifie que les variables d'environnement SMTP sont présentes.
 	if cfg.SMTPPassword == "" {
 		t.Fatal("SMTP_PASSWORD est vide")
 	}
 
+	// Vérifie que les variables d'environnement SMTP sont présentes.
 	if cfg.SMTPFrom == "" {
 		t.Fatal("SMTP_FROM est vide")
 	}
 
+	// Vérifie que les variables d'environnement SMTP sont présentes.
+	if cfg.SMTPHost == "" {
+		t.Fatal("SMTP_HOST est vide")
+	}
+
+	// Vérifie que les variables d'environnement SMTP sont présentes.
+	if cfg.SMTPPort == 0 {
+		t.Fatal("SMTP_PORT est vide")
+	}
+	// Affiche les informations de configuration pour le débogage.
 	t.Logf("SMTP Host : %s", cfg.SMTPHost)
 	t.Logf("SMTP Port : %d", cfg.SMTPPort)
 	t.Logf("SMTP User : %s", cfg.SMTPUser)
 	t.Logf("SMTP From : %s", cfg.SMTPFrom)
 
+	// Crée un client SMTP avec la configuration chargée.
 	client := email.NewSMTPClient(cfg)
 
+	// Envoie un email de test à une adresse de test. Remplacez "reply@sensei.ci" par l'adresse de test souhaitée.
 	err = client.SendEmail(
 		"reply@sensei.ci",
 		"Test SMTP Sensei",
@@ -63,6 +78,7 @@ func TestSendEmail(t *testing.T) {
 		"TEXT",
 	)
 
+	// Vérifie si l'envoi a échoué et échoue le test si c'est le cas.
 	if err != nil {
 		t.Fatalf("Échec de l'envoi SMTP : %v", err)
 	}
