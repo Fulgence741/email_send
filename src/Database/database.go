@@ -39,24 +39,25 @@ func (Application) TableName() string {
 
 // Email représente un message persistant en attente de traitement.
 type Email struct {
-	IDEmail                int64      `gorm:"primaryKey;column:id_email" json:"id_email"`
-	IDApplication          int64      `gorm:"column:id_application;not null" json:"id_application"`
-	Destinataire           string     `gorm:"column:destinataire;not null" json:"destinataire"`
-	Objet                  string     `gorm:"column:objet;not null" json:"objet"`
-	Message                string     `gorm:"column:message;not null" json:"message"`
-	TypeContenu            string     `gorm:"column:type_contenu;not null" json:"type_contenu"`
-	Statut                 string     `gorm:"column:statut;not null" json:"statut"`
-	CleIdempotence         string     `gorm:"column:cle_idempotence;not null" json:"-"`
-	NombreMaxTentatives    int        `gorm:"column:nombre_max_tentatives;not null;default:3" json:"-"`
-	DelaiRetrySecondes     int        `gorm:"column:delai_retry_secondes;not null;default:60" json:"-"`
-	DateCreation           time.Time  `gorm:"column:date_creation;not null" json:"date_creation"`
+	IDEmail       int64      `gorm:"primaryKey;column:id_email" json:"id_email"`
+	IDApplication int64      `gorm:"column:id_application;not null" json:"id_application"`
+	Destinataire  string     `gorm:"column:destinataire;not null" json:"destinataire"`
+	Objet         string     `gorm:"column:objet;not null" json:"objet"`
+	Contenu       string     `gorm:"column:contenu;not null" json:"contenu"`
+	TypeContenu   string     `gorm:"column:type_contenu;not null" json:"type_contenu"`
+	Statut        string     `gorm:"column:statut;not null" json:"statut"`
+	DateCreation  time.Time  `gorm:"column:date_creation;not null" json:"date_creation"`
+	DateEnvoi     *time.Time `gorm:"column:date_envoi" json:"date_envoi,omitempty"`
+
 	DateDebutTraitement    *time.Time `gorm:"column:date_debut_traitement" json:"-"`
-	DateFinTraitement      *time.Time `gorm:"column:date_fin_traitement" json:"date_fin_traitement,omitempty"`
 	DateProchaineTentative *time.Time `gorm:"column:date_prochaine_tentative" json:"-"`
-	MessageErreur          *string    `gorm:"column:message_erreur" json:"message_erreur,omitempty"`
+
+	MessageErreur *string `gorm:"column:message_erreur" json:"message_erreur,omitempty"`
+
+	// Colonne message existante dans PostgreSQL
+	Message *string `gorm:"column:message" json:"message,omitempty"`
 }
 
-// TableName associe Email à la table existante de la migration PostgreSQL.
 func (Email) TableName() string {
 	return "emails"
 }

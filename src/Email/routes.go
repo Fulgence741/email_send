@@ -52,11 +52,11 @@ func RegisterRoutes(
 
 	// Chaque consultation reste circonscrite à l'application portée par la clé API.
 	protected.POST("/emails", AddEmailHandlers(repository, stockagePieces))
-	protected.GET("/emails", ListerEmailsHandler(repository))
-	protected.GET("/emails/:id", LireEmailHandler(repository))
-	protected.GET("/emails/:id/attempts", ListerTentativesEmailHandler(repository))
-	protected.GET("/emails/:id/attachments", ListerPiecesJointesHandler(repository))
-	protected.GET("/emails/:id/attachments/:piece_id", TelechargerPieceJointeHandler(repository))
+	protected.POST("/emails/liste", ListerEmailsHandler(repository))
+	protected.POST("/emails/:id", LireEmailHandler(repository))
+	protected.POST("/emails/:id/attempts", ListerTentativesEmailHandler(repository))
+	protected.POST("/emails/:id/attachments", ListerPiecesJointesHandler(repository))
+	protected.POST("/emails/:id/attachments/:piece_id", TelechargerPieceJointeHandler(repository))
 }
 
 // readinessHandler vérifie que les dépendances nécessaires au service répondent.

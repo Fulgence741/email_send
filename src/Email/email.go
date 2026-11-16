@@ -75,15 +75,6 @@ func AddEmailHandlers(repository *database.Repository, stockage *StockagePiecesJ
 			})
 			return
 		}
-		// La clé est obligatoire pour empêcher la création de doublons lors des reprises client.
-		idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
-		if idempotencyKey == "" || len(idempotencyKey) > 255 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": "L'en-tête Idempotency-Key est obligatoire et limité à 255 caractères.",
-			})
-			return
-		}
 
 		// L'application est fournie exclusivement par le middleware d'authentification.
 		application := middleware.ApplicationAuthentifiee(c)
@@ -126,7 +117,6 @@ func AddEmailHandlers(repository *database.Repository, stockage *StockagePiecesJ
 			Message:             dto.Contenu,
 			TypeContenu:         dto.TypeContenu,
 			Statut:              "PENDING",
-			CleIdempotence:      idempotencyKey,
 			NombreMaxTentatives: 3,
 			DelaiRetrySecondes:  60,
 			DateCreation:        time.Now().UTC(),
