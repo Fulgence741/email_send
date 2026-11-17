@@ -39,9 +39,6 @@ CREATE TABLE emails (
 
     statut VARCHAR(20) NOT NULL DEFAULT 'PENDING',
 
-    -- Gestion de l'idempotence
-    cle_idempotence VARCHAR(255) NOT NULL,
-
     -- Gestion des tentatives
     nombre_max_tentatives INTEGER NOT NULL DEFAULT 3,
     delai_retry_secondes INTEGER NOT NULL DEFAULT 60,
@@ -60,11 +57,6 @@ CREATE TABLE emails (
     CONSTRAINT fk_emails_applications
         FOREIGN KEY (id_application)
         REFERENCES applications(id_application),
-
-    -- Une même clé d'idempotence ne peut être utilisée
-    -- qu'une seule fois par application
-    CONSTRAINT uq_emails_idempotence
-        UNIQUE (id_application, cle_idempotence),
 
     CONSTRAINT chk_emails_statut
         CHECK (

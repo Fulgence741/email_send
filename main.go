@@ -6,6 +6,7 @@ import (
 
 	email "email-send-API/src/Email"
 	setting "email-send-API/src/Setting"
+	"email-send-API/src/database"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,23 +15,22 @@ func main() {
 	// Charger la configuration
 	cfg := setting.LoadConfig()
 
-	db, err := setting.ConnectDB(cfg)
+	db, err := database.ConnectDB(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Récupérer l'instance *sql.DB pour gérer la connexion
+	// Récupérer l'instance *sql.DB pour fermer proprement la connexion.
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Fermer la connexion à la base de données lorsque l'application se termine
 	defer sqlDB.Close()
 	router := gin.Default()
 
-	// initialiser les routes
-	email.RegisterRoutes(router)
+	// Enregistrer les routes et réutiliser le client SMTP.
+	email.RegisterRoutes(router, db, email.NewSMTPClient(cfg))
 
 	// Demarrage du serveur
 	port := strconv.Itoa(cfg.AppPort)

@@ -20,10 +20,25 @@ func NewSMTPClient(cfg *setting.Config) *SMTPClient {
 	}
 }
 
-func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType string) error {
+func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType string) error {
+	if client == nil || client.Configuration == nil {
+		return fmt.Errorf("configuration SMTP absente")
+	}
+	if strings.TrimSpace(client.Configuration.SMTPHost) == "" {
+		return fmt.Errorf("SMTP_HOST est requis")
+	}
+	if client.Configuration.SMTPPort < 1 || client.Configuration.SMTPPort > 65535 {
+		return fmt.Errorf("SMTP_PORT doit être compris entre 1 et 65535")
+	}
+	if strings.TrimSpace(client.Configuration.SMTPUser) == "" {
+		return fmt.Errorf("SMTP_USER est requis")
+	}
+	if client.Configuration.SMTPPassword == "" {
+		return fmt.Errorf("SMTP_PASSWORD est requis")
+	}
 
 	// Récupération de la configuration
-	host := client.Configuration.SMTPHost
+	host := strings.TrimSpace(client.Configuration.SMTPHost)
 
 	// Construction de l'adresse réseau complète
 	address := net.JoinHostPort(host, fmt.Sprint(client.Configuration.SMTPPort))
@@ -34,12 +49,13 @@ func (client *SMTPClient) SendEmail(expediteur, subject, body, contentType strin
 		return fmt.Errorf("adresse expéditeur invalide : %w", err)
 	}
 
-	// vérifier adresse email du destinataire
-	recipient, err := mail.ParseAddress(expediteur)
+	// Vérifier l'adresse du destinataire.
+	recipient, err := mail.ParseAddress(destinataire)
 	if err != nil {
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
 	}
 
+	
 	// Éviter l'injection d'en-têtes
 	if strings.ContainsAny(subject, "\r\n") {
 		return fmt.Errorf("objet email invalide")
