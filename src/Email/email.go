@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	emailSending = "SENDING"
-	emailSent    = "SENT"
-	emailFailed  = "FAILED"
+	// représente les différents statuts possibles pour un email.
+	emailSending = "EN_ATTENTE"
+	emailSent    = "ENVOYE"
+	emailFailed  = "ECHEC"
 
+	// représente les différents statuts possibles pour une tentative d'envoi.
 	attemptRunning = "EN_COURS"
 	attemptSuccess = "REUSSIE"
 	attemptFailure = "ECHEC"
@@ -35,6 +37,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			return
 		}
 
+		// Récupérer l'ID de l'application authentifiée depuis le contexte Gin.
 		applicationID, ok := setting.AuthenticatedApplicationID(c)
 		if !ok {
 			log.Printf("identifiant d'application absent après authentification")
@@ -42,6 +45,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			return
 		}
 
+		// Enregistrer l'email dans la base de données avec le statut "EN_ATTENTE" et créer une tentative d'envoi initiale.
 		now := time.Now().UTC()
 		emailRecord := database.Email{
 			IDApplication:       applicationID,
@@ -50,20 +54,23 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			Message:             dto.Message,
 			TypeContenu:         dto.TypeContenu,
 			Statut:              emailSending,
-			NombreMaxTentatives: 3,
-			DelaiRetrySecondes:  60,
+			NombreMaxTentatives: 3,  // Nombre maximum de tentatives d'envoi
+			DelaiRetrySecondes:  60, // Délai entre les tentatives d'envoi en secondes
 			DateCreation:        now,
-			DateDebutTraitement: &now,
+			DateDebutTraitement: &now, // Date de début du traitement de l'email
 		}
+		// Créer une tentative d'envoi initiale avec le statut "EN_COURS".
 		attempt := database.Envoie{
 			NumeroTentative: 1,
 			DateTentative:   now,
-			Statut:          attemptRunning,
+			Statut:          attemptRunning, // Statut initial de la tentative
 		}
+		// Enregistrer l'email et la tentative dans une transaction
 		if err := db.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Create(&emailRecord).Error; err != nil {
 				return err
 			}
+			// Associer l'ID de l'email à la tentative d'envoi
 			attempt.IDEmail = emailRecord.IDEmail
 			return tx.Create(&attempt).Error
 		}); err != nil {
@@ -71,10 +78,10 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement de l'email."})
 			return
 		}
-
+		// Envoyer l'email en utilisant le client SMTP.
 		sendErr := smtpClient.SendEmail(dto.Destinataire, dto.Objet, dto.Message, dto.TypeContenu)
 		finishedAt := time.Now().UTC()
-		updates := map[string]interface{}{"date_fin_traitement": finishedAt}
+		updates := map[string]interface{}{"date_fin_traitement": finishedAt} // Mettre à jour la date de fin de traitement de l'email
 		attemptUpdates := map[string]interface{}{}
 		if sendErr != nil {
 			message := sendErr.Error()
@@ -91,6 +98,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			if err := tx.Model(&emailRecord).Updates(updates).Error; err != nil {
 				return err
 			}
+			// Mettre à jour la tentative d'envoi avec le statut et le message d'erreur si nécessaire
 			return tx.Model(&attempt).Updates(attemptUpdates).Error
 		}); err != nil {
 			log.Printf("impossible d'enregistrer le résultat d'envoi: %v", err)
@@ -98,6 +106,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			return
 		}
 
+		// Mettre à jour l'objet emailRecord avec les nouvelles valeurs pour la réponse
 		emailRecord.DateFinTraitement = &finishedAt
 		if sendErr != nil {
 			message := sendErr.Error()
@@ -106,6 +115,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "L'envoi de l'email a échoué.", "data": emailRecord})
 			return
 		}
+		// Si l'envoi a réussi, renvoyer une réponse de succès avec les détails de l'email.
 
 		emailRecord.Statut = emailSent
 		c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Email envoyé avec succès.", "data": emailRecord})

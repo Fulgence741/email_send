@@ -24,15 +24,19 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 	if client == nil || client.Configuration == nil {
 		return fmt.Errorf("configuration SMTP absente")
 	}
+	// Validation des paramètres de configuration SMTP
 	if strings.TrimSpace(client.Configuration.SMTPHost) == "" {
 		return fmt.Errorf("SMTP_HOST est requis")
 	}
+	// Validation du port SMTP
 	if client.Configuration.SMTPPort < 1 || client.Configuration.SMTPPort > 65535 {
 		return fmt.Errorf("SMTP_PORT doit être compris entre 1 et 65535")
 	}
+	// Validation de l'utilisateur SMTP
 	if strings.TrimSpace(client.Configuration.SMTPUser) == "" {
 		return fmt.Errorf("SMTP_USER est requis")
 	}
+	// Validation du mot de passe SMTP
 	if client.Configuration.SMTPPassword == "" {
 		return fmt.Errorf("SMTP_PASSWORD est requis")
 	}
@@ -55,7 +59,6 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
 	}
 
-	
 	// Éviter l'injection d'en-têtes
 	if strings.ContainsAny(subject, "\r\n") {
 		return fmt.Errorf("objet email invalide")
