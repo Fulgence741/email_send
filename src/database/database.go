@@ -139,3 +139,5 @@ type PieceJointeResponseDTO struct {
 	TypeMIME      string `json:"type_mime"`
 	TailleFichier int64  `json:"taille_fichier"`
 }
+
+//
