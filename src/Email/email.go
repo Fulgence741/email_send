@@ -14,14 +14,9 @@ import (
 
 const (
 	// représente les différents statuts possibles pour un email.
-	emailSending = "EN_ATTENTE"
-	emailSent    = "ENVOYE"
-	emailFailed  = "ECHEC"
-
-	// représente les différents statuts possibles pour une tentative d'envoi.
-	attemptRunning = "EN_COURS"
-	attemptSuccess = "REUSSIE"
-	attemptFailure = "ECHEC"
+	emailSending = "SENDING"
+	emailSent    = "SENT"
+	emailFailed  = "FAILED"
 )
 
 // AddEmailHandler enregistre l'email, l'envoie et conserve le résultat.
@@ -45,7 +40,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			return
 		}
 
-		// Enregistrer l'email dans la base de données avec le statut "EN_ATTENTE" et créer une tentative d'envoi initiale.
+		// Enregistrer l'email avant de commencer son envoi.
 		now := time.Now().UTC()
 		emailRecord := database.Email{
 			IDApplication:       applicationID,
@@ -59,63 +54,51 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			DateCreation:        now,
 			DateDebutTraitement: &now, // Date de début du traitement de l'email
 		}
-		// Créer une tentative d'envoi initiale avec le statut "EN_COURS".
-		attempt := database.Envoie{
-			NumeroTentative: 1,
-			DateTentative:   now,
-			Statut:          attemptRunning, // Statut initial de la tentative
-		}
-		// Enregistrer l'email et la tentative dans une transaction
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Create(&emailRecord).Error; err != nil {
-				return err
-			}
-			// Associer l'ID de l'email à la tentative d'envoi
-			attempt.IDEmail = emailRecord.IDEmail
-			return tx.Create(&attempt).Error
-		}); err != nil {
+		if err := db.Create(&emailRecord).Error; err != nil {
 			log.Printf("impossible d'enregistrer l'email: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement de l'email."})
 			return
 		}
-		// Envoyer l'email en utilisant le client SMTP.
-		sendErr := smtpClient.SendEmail(dto.Destinataire, dto.Objet, dto.Message, dto.TypeContenu)
+
+		// Envoyer l'email et enregistrer ses tentatives.
+		sendErr, attemptErr := sendWithAttempts(db, &emailRecord, smtpClient)
+		if attemptErr != nil {
+			sendErr = attemptErr
+		}
 		finishedAt := time.Now().UTC()
-		updates := map[string]interface{}{"date_fin_traitement": finishedAt} // Mettre à jour la date de fin de traitement de l'email
-		attemptUpdates := map[string]interface{}{}
+		updates := map[string]interface{}{
+			"date_fin_traitement":      finishedAt,
+			"date_prochaine_tentative": nil,
+		}
 		if sendErr != nil {
 			message := sendErr.Error()
 			updates["statut"] = emailFailed
 			updates["message_erreur"] = message
-			attemptUpdates["statut"] = attemptFailure
-			attemptUpdates["message_erreur"] = message
 		} else {
 			updates["statut"] = emailSent
-			attemptUpdates["statut"] = attemptSuccess
 		}
 
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&emailRecord).Updates(updates).Error; err != nil {
-				return err
-			}
-			// Mettre à jour la tentative d'envoi avec le statut et le message d'erreur si nécessaire
-			return tx.Model(&attempt).Updates(attemptUpdates).Error
-		}); err != nil {
+		if err := db.Model(&emailRecord).Updates(updates).Error; err != nil {
 			log.Printf("impossible d'enregistrer le résultat d'envoi: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "L'envoi a été tenté, mais son résultat n'a pas pu être enregistré."})
 			return
 		}
 
-		// Mettre à jour l'objet emailRecord avec les nouvelles valeurs pour la réponse
+		// Mettre à jour l'objet emailRecord avec les nouvelles valeurs pour la réponse.
 		emailRecord.DateFinTraitement = &finishedAt
+		emailRecord.DateProchaineTentative = nil
 		if sendErr != nil {
 			message := sendErr.Error()
 			emailRecord.Statut = emailFailed
 			emailRecord.MessageErreur = &message
+			if attemptErr != nil {
+				log.Printf("impossible d'enregistrer une tentative d'envoi: %v", attemptErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement d'une tentative d'envoi.", "data": emailRecord})
+				return
+			}
 			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "L'envoi de l'email a échoué.", "data": emailRecord})
 			return
 		}
-		// Si l'envoi a réussi, renvoyer une réponse de succès avec les détails de l'email.
 
 		emailRecord.Statut = emailSent
 		c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Email envoyé avec succès.", "data": emailRecord})

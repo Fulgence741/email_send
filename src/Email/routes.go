@@ -7,9 +7,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// RegisterRoutes enregistre les routes de l'API, toutes accessibles en POST.
+// RegisterRoutes enregistre les routes de l'API.
 func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
 	api := router.Group("/v1")
 	api.POST("/applications", AddApplicationHandler(db))
 	api.POST("/emails", setting.APIKeyAuth(db), AddEmailHandler(db, smtpClient))
+	api.GET("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
 }

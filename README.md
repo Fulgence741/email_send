@@ -11,13 +11,12 @@
 
 ## Routes
 
-Toutes les routes utilisent la méthode `POST` :
-
 - `POST /v1/applications` crée une application. Corps JSON : `{"nom":"nom-de-l'application"}`.
   La clé `api_key` de la réponse n'est affichée qu'à la création ; on la notz pour l'authentification plus tard.
 - `POST /v1/emails` envoie un email et enregistre son résultat dans `emails` et
   `tentatives_envoi`. La clé API identifie l'application ; à mettre dans
-  l'en-tête `X-API-Key`. Corps JSON :
+  l'en-tête `X-API-Key`. En cas d'échec, l'envoi est réessayé jusqu'à trois fois,
+  avec un délai de 60 secondes entre les tentatives. Corps JSON :
 
 ```json
 {
@@ -30,6 +29,8 @@ Toutes les routes utilisent la méthode `POST` :
 
 `type_contenu` accepte `TEXT` ou `HTML`.
 
+- `GET /v1/tentatives` retourne directement la liste détaillée des tentatives
+  d'envoi de l'application identifiée par la clé `X-API-Key`.
 
 
 
