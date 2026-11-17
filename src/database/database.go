@@ -140,4 +140,3 @@ type PieceJointeResponseDTO struct {
 	TailleFichier int64  `json:"taille_fichier"`
 }
 
-//
