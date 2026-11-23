@@ -50,7 +50,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			TypeContenu:         dto.TypeContenu,
 			Statut:              emailSending,
 			NombreMaxTentatives: 3,  // Nombre maximum de tentatives d'envoi
-			DelaiRetrySecondes:  60, // Délai entre les tentatives d'envoi en secondes
+			DelaiRetrySecondes:  15, // Délai entre les tentatives d'envoi en secondes
 			DateCreation:        now,
 			DateDebutTraitement: &now, // Date de début du traitement de l'email
 		}

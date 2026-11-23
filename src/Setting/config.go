@@ -25,6 +25,10 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+
+	RedisHost     string
+	RedisPort     int
+	RedisPassword string
 }
 
 func LoadConfig() *Config {
@@ -50,6 +54,14 @@ func LoadConfig() *Config {
 		log.Fatal("SMTP_PORT doit être un entier valide")
 	}
 
+	// Récupérer et convertir le port Redis en entier
+	RedisPort, err := strconv.Atoi(os.Getenv("REDIS_PORT"))
+	if err != nil {
+		log.Fatal("REDIS_PORT doit être un entier valide")
+	}
+
+	// Créer et retourner la configuration
+
 	return &Config{
 		AppName: os.Getenv("APP_NAME"),
 		AppEnv:  os.Getenv("APP_ENV"),
@@ -67,6 +79,11 @@ func LoadConfig() *Config {
 		SMTPUser:     os.Getenv("SMTP_USER"),
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
+
+		//configuration redis
+		RedisHost:     os.Getenv("REDIS_HOST"),
+		RedisPort:     RedisPort,
+		RedisPassword: os.Getenv("REDIS_PASSWORD"),
 	}
 
 }

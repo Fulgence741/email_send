@@ -12,5 +12,5 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
 	api := router.Group("/v1")
 	api.POST("/applications", AddApplicationHandler(db))
 	api.POST("/emails", setting.APIKeyAuth(db), AddEmailHandler(db, smtpClient))
-	api.GET("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
+	api.POST("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
 }
