@@ -1,9 +1,10 @@
 package setting
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -25,77 +26,153 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+	SMTPTLS      bool
 
 	RedisHost     string
 	RedisPort     int
 	RedisPassword string
 }
 
-func LoadConfig() *Config {
+// LoadConfig charge et valide les variables d'environnement.
+func LoadConfig() (*Config, error) {
+
 	// Charger le fichier .env
 	if err := godotenv.Load(); err != nil {
-		log.Println("Fichier .env introuvable, utilisation des variables du système")
+		fmt.Println("Fichier .env introuvable, utilisation des variables système")
 	}
-	// Récupérer et convertir le port de l'application en entier
-	AppPort, err := strconv.Atoi(os.Getenv("APP_PORT"))
+
+	// Récupérer les ports
+	appPort, err := getIntEnv("APP_PORT", "8080")
 	if err != nil {
-		log.Fatal("APP_PORT doit être un entier valide")
+		return nil, err
 	}
 
-	// Récupérer et convertir le port de la base de données en entier
-	DBPort, err := strconv.Atoi(os.Getenv("DB_PORT"))
+	dbPort, err := getIntEnv("DB_PORT", "5432")
 	if err != nil {
-		log.Fatal("DB_PORT doit être un entier valide")
+		return nil, err
 	}
 
-	// Récupérer et convertir le port SMTP en entier
-	SMTPPort, err := strconv.Atoi(os.Getenv("SMTP_PORT"))
+	smtpPort, err := getIntEnv("SMTP_PORT", "587")
 	if err != nil {
-		log.Fatal("SMTP_PORT doit être un entier valide")
+		return nil, err
 	}
 
-	// Récupérer et convertir le port Redis en entier
-	RedisPort, err := strconv.Atoi(os.Getenv("REDIS_PORT"))
+	redisPort, err := getIntEnv("REDIS_PORT", "6379")
 	if err != nil {
-		log.Fatal("REDIS_PORT doit être un entier valide")
+		return nil, err
 	}
 
-	// Créer et retourner la configuration
-
-	return &Config{
-		AppName: os.Getenv("APP_NAME"),
-		AppEnv:  os.Getenv("APP_ENV"),
-		AppPort: AppPort,
-
-		DBHost:     os.Getenv("DB_HOST"),
-		DBPort:     DBPort,
-		DBUser:     os.Getenv("DB_USER"),
-		DBPassword: os.Getenv("DB_PASSWORD"),
-		DBName:     os.Getenv("DB_NAME"),
-		DBSSLMode:  os.Getenv("DB_SSLMODE"),
-
-		SMTPHost:     os.Getenv("SMTP_HOST"),
-		SMTPPort:     SMTPPort,
-		SMTPUser:     os.Getenv("SMTP_USER"),
-		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
-		SMTPFrom:     os.Getenv("SMTP_FROM"),
-
-		
-		//configuration redis
-		RedisHost:     os.Getenv("REDIS_HOST"),
-		RedisPort:     RedisPort,
-		RedisPassword: os.Getenv("REDIS_PASSWORD"),
+	// Récupérer la configuration TLS SMTP
+	smtpTLS, err := strconv.ParseBool(getEnv("SMTP_TLS", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("SMTP_TLS doit être un booléen valide : %w", err)
 	}
 
+	// Construire la configuration
+	cfg := &Config{
+		AppName: getEnv("APP_NAME", "email-send-API"),
+		AppEnv:  getEnv("APP_ENV", "development"),
+		AppPort: appPort,
+
+		DBHost:     getEnv("DB_HOST", "localhost"),
+		DBPort:     dbPort,
+		DBUser:     getEnv("DB_USER", ""),
+		DBPassword: getEnv("DB_PASSWORD", ""),
+		DBName:     getEnv("DB_NAME", ""),
+		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+
+		SMTPHost:     getEnv("SMTP_HOST", ""),
+		SMTPPort:     smtpPort,
+		SMTPUser:     getEnv("SMTP_USER", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:     getEnv("SMTP_FROM", ""),
+		SMTPTLS:      smtpTLS,
+
+		RedisHost:     getEnv("REDIS_HOST", "localhost"),
+		RedisPort:     redisPort,
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+	}
+
+	// Valider la configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
 }
 
-// getEnv récupère une variable d'environnement et renvoie sa valeur
-// par défaut si elle n'est pas définie
+// Validate vérifie la validité de la configuration.
+func (cfg *Config) Validate() error {
 
+	if cfg == nil {
+		return fmt.Errorf("configuration absente")
+	}
+
+	// Application
+	if cfg.AppPort < 1 || cfg.AppPort > 65535 {
+		return fmt.Errorf("APP_PORT invalide")
+	}
+
+	// Base de données
+	if cfg.DBPort < 1 || cfg.DBPort > 65535 {
+		return fmt.Errorf("DB_PORT invalide")
+	}
+
+	// SMTP
+	if cfg.SMTPHost == "" {
+		return fmt.Errorf("SMTP_HOST est requis")
+	}
+
+	if cfg.SMTPPort < 1 || cfg.SMTPPort > 65535 {
+		return fmt.Errorf("SMTP_PORT invalide")
+	}
+
+	if cfg.SMTPUser == "" {
+		return fmt.Errorf("SMTP_USER est requis")
+	}
+
+	if cfg.SMTPPassword == "" {
+		return fmt.Errorf("SMTP_PASSWORD est requis")
+	}
+
+	if cfg.SMTPFrom == "" {
+		return fmt.Errorf("SMTP_FROM est requis")
+	}
+
+	// Redis
+	if cfg.RedisPort < 1 || cfg.RedisPort > 65535 {
+		return fmt.Errorf("REDIS_PORT invalide")
+	}
+
+	return nil
+}
+
+// getEnv récupère une variable d'environnement.
+// Si elle est absente, retourne la valeur par défaut.
 func getEnv(key, fallback string) string {
-	value := os.Getenv(key)
+
+	value := strings.TrimSpace(os.Getenv(key))
+
 	if value == "" {
 		return fallback
 	}
+
 	return value
+}
+
+// getIntEnv récupère une variable d'environnement et la convertit en entier.
+func getIntEnv(key, fallback string) (int, error) {
+
+	value := getEnv(key, fallback)
+
+	result, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s doit être un entier valide : %w", key, err)
+	}
+
+	if result < 1 || result > 65535 {
+		return 0, fmt.Errorf("%s doit être compris entre 1 et 65535", key)
+	}
+
+	return result, nil
 }

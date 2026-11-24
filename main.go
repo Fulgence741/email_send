@@ -8,34 +8,50 @@ import (
 	setting "email-send-API/src/Setting"
 	"email-send-API/src/database"
 
+	redis "email-send-API/src/Redis"
+
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Charger la configuration
-	cfg := setting.LoadConfig()
 
+	// Charger la configuration
+	cfg, err := setting.LoadConfig()
+	if err != nil {
+		log.Fatalf("Erreur chargement configuration : %v", err)
+	}
+
+	// Connexion MySQL
 	db, err := database.ConnectDB(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Récupérer l'instance *sql.DB pour fermer proprement la connexion.
+	// Connexion Redis
+	rdb, err := redis.NewRedisClient()
+	if err != nil {
+		log.Fatal("Erreur Redis :", err)
+	}
+	defer rdb.Close()
+
+	// Fermer proprement la connexion MySQL
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer sqlDB.Close()
+
+	// Initialiser Gin
 	router := gin.Default()
 
-	// Enregistrer les routes et réutiliser le client SMTP.
+	// Enregistrer les routes
 	email.RegisterRoutes(router, db, email.NewSMTPClient(cfg))
 
-	// Demarrage du serveur
+	// Démarrer le serveur
 	port := strconv.Itoa(cfg.AppPort)
 
 	if err := router.Run(":" + port); err != nil {
 		log.Fatal(err)
 	}
+
 }

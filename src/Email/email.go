@@ -49,11 +49,12 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 			Message:             dto.Message,
 			TypeContenu:         dto.TypeContenu,
 			Statut:              emailSending,
-			NombreMaxTentatives: 3,  // Nombre maximum de tentatives d'envoi
+			NombreMaxTentatives: 1,  // Nombre maximum de tentatives d'envoi
 			DelaiRetrySecondes:  15, // Délai entre les tentatives d'envoi en secondes
 			DateCreation:        now,
 			DateDebutTraitement: &now, // Date de début du traitement de l'email
 		}
+
 		if err := db.Create(&emailRecord).Error; err != nil {
 			log.Printf("impossible d'enregistrer l'email: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement de l'email."})
@@ -65,6 +66,7 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 		if attemptErr != nil {
 			sendErr = attemptErr
 		}
+		//
 		finishedAt := time.Now().UTC()
 		updates := map[string]interface{}{
 			"date_fin_traitement":      finishedAt,
