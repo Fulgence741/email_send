@@ -80,6 +80,7 @@ func LoadConfig() *Config {
 		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:     os.Getenv("SMTP_FROM"),
 
+		
 		//configuration redis
 		RedisHost:     os.Getenv("REDIS_HOST"),
 		RedisPort:     RedisPort,

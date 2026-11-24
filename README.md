@@ -20,7 +20,7 @@
 
 ```json
 {
-  "destinataire": "destinataire@example.com",
+  "destinataire": "destinataire@mail.com",
   "objet": "Bonjour",
   "message": "Contenu du message",
   "type_contenu": "TEXT"
@@ -29,7 +29,7 @@
 
 `type_contenu` accepte `TEXT` ou `HTML`.
 
-- `GET /v1/tentatives` retourne directement la liste détaillée des tentatives
+- `POST /v1/tentatives` retourne directement la liste détaillée des tentatives
   d'envoi de l'application identifiée par la clé `X-API-Key`.
 
 
