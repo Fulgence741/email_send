@@ -59,6 +59,7 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 
 	// Vérifier l'adresse destinataire
 	recipient, err := mail.ParseAddress(destinataire)
+
 	if err != nil {
 		return fmt.Errorf("adresse destinataire invalide : %w", err)
 	}
@@ -87,6 +88,7 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 
 	// Construire le message email
 	message := []byte(
+
 		"From: " + from.String() + "\r\n" +
 			"To: " + recipient.String() + "\r\n" +
 			"Subject: " + encodedSubject + "\r\n" +
@@ -96,7 +98,6 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 			"\r\n" +
 			body,
 	)
-
 	// Construire l'adresse du serveur SMTP
 	address := net.JoinHostPort(host, fmt.Sprint(cfg.SMTPPort))
 
@@ -105,15 +106,19 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 		Timeout: 10 * time.Second,
 	}
 
-	conn, err := dialer.Dial("tcp", address)
+	connected, err := dialer.Dial("tcp", address)
 	if err != nil {
 		return fmt.Errorf("connexion SMTP impossible : %w", err)
 	}
 
+	defer connected.Close()
+
+	if err := connected.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		return fmt.Errorf("impossible de définir le délai réseau : %w", err)
+	}
 	// Créer le client SMTP
-	smtpConnection, err := smtp.NewClient(conn, host)
+	smtpConnection, err := smtp.NewClient(connected, host)
 	if err != nil {
-		conn.Close()
 		return fmt.Errorf("initialisation SMTP impossible : %w", err)
 	}
 
@@ -124,20 +129,18 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 		ServerName: host,
 		MinVersion: tls.VersionTLS12,
 	}
-
 	// Vérifier si le serveur supporte STARTTLS
-	if cfg.SMTPTLS {
+	if !cfg.SMTPTLS {
+		return fmt.Errorf("une connnexion TLS est obligatoire")
+	}
+	ok, _ := smtpConnection.Extension("STARTTLS")
 
-		ok, _ := smtpConnection.Extension("STARTTLS")
+	if !ok {
+		return fmt.Errorf("STARTTLS non supporté par le serveur SMTP")
+	}
 
-		if !ok {
-			return fmt.Errorf("STARTTLS non supporté par le serveur SMTP")
-		}
-
-		// Activer STARTTLS
-		if err := smtpConnection.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("erreur STARTTLS : %w", err)
-		}
+	if err := smtpConnection.StartTLS(tlsConfig); err != nil {
+		return fmt.Errorf("échec de l'activation de TLS : %w", err)
 	}
 
 	// Authentification SMTP
@@ -169,9 +172,16 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 	}
 
 	// Écrire le contenu du message
-	if _, err := writer.Write(message); err != nil {
+	n, err := writer.Write(message)
+
+	if err != nil {
 		_ = writer.Close()
 		return fmt.Errorf("erreur écriture du message : %w", err)
+	}
+
+	if n != len(message) {
+		_ = writer.Close()
+		return fmt.Errorf("écriture incomplète du message")
 	}
 
 	// Terminer l'envoi
