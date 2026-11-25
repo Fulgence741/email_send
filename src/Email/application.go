@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	setting "email-send-API/src/Setting"
@@ -64,5 +65,73 @@ func AddApplicationHandler(db *gorm.DB) gin.HandlerFunc {
 				"api_key":        apiKey,
 			},
 		})
+	}
+}
+
+// ListApplicationsHandler retourne la liste des applications sans leurs clés API.
+func ListApplicationsHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		applicationID, ok := setting.AuthenticatedApplicationID(c)
+		if !ok {
+			log.Printf("identifiant d'application absent après authentification")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
+			return
+		}
+
+		applications := make([]database.Application, 0)
+		if err := db.Where("id_application = ?", applicationID).
+			Find(&applications).Error; err != nil {
+			log.Printf("impossible de consulter les applications: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la consultation des applications."})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": applications})
+	}
+}
+
+// DeleteApplicationHandler supprime une application et ses emails dans une transaction.
+func DeleteApplicationHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authenticatedID, ok := setting.AuthenticatedApplicationID(c)
+		if !ok {
+			log.Printf("identifiant d'application absent après authentification")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
+			return
+		}
+
+		applicationID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || applicationID < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Identifiant d'application invalide."})
+			return
+		}
+		if applicationID != authenticatedID {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Application introuvable."})
+			return
+		}
+
+		err = db.Transaction(func(tx *gorm.DB) error {
+			var application database.Application
+			if err := tx.First(&application, "id_application = ?", applicationID).Error; err != nil {
+				return err
+			}
+
+			// Les tentatives et pièces jointes sont supprimées par les cascades SQL liées aux emails.
+			if err := tx.Where("id_application = ?", applicationID).Delete(&database.Email{}).Error; err != nil {
+				return err
+			}
+			return tx.Delete(&application).Error
+		})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Application introuvable."})
+			return
+		}
+		if err != nil {
+			log.Printf("impossible de supprimer l'application %d: %v", applicationID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la suppression de l'application."})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Application supprimée avec succès."})
 	}
 }

@@ -11,6 +11,10 @@ import (
 func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
 	api := router.Group("/v1")
 	api.POST("/applications", AddApplicationHandler(db))
+	api.POST("/applications/liste", setting.APIKeyAuth(db), ListApplicationsHandler(db))
+	api.POST("/applications/supprimer/:id", setting.APIKeyAuth(db), DeleteApplicationHandler(db))
 	api.POST("/emails", setting.APIKeyAuth(db), AddEmailHandler(db, smtpClient))
+	api.POST("/emails/liste", setting.APIKeyAuth(db), ListEmailsHandler(db))
+	api.POST("/emails/supprimer/:id", setting.APIKeyAuth(db), DeleteEmailHandler(db))
 	api.POST("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
 }

@@ -83,7 +83,7 @@ func LoadConfig() (*Config, error) {
 
 		SMTPHost:     getEnv("SMTP_HOST", ""),
 		SMTPPort:     smtpPort,
-		SMTPUser:     getEnv("SMTP_USER", ""),
+		SMTPUser:     getEnv("SMTP_USER", ""),	
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		SMTPFrom:     getEnv("SMTP_FROM", ""),
 		SMTPTLS:      smtpTLS,

@@ -3,6 +3,7 @@ package email
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	setting "email-send-API/src/Setting"
@@ -104,5 +105,60 @@ func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
 
 		emailRecord.Statut = emailSent
 		c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Email envoyé avec succès.", "data": emailRecord})
+	}
+}
+
+// ListEmailsHandler retourne uniquement les emails de l'application authentifiée.
+func ListEmailsHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		applicationID, ok := setting.AuthenticatedApplicationID(c)
+		if !ok {
+			log.Printf("identifiant d'application absent après authentification")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
+			return
+		}
+
+		emails := make([]database.Email, 0)
+		if err := db.Where("id_application = ?", applicationID).
+			Order("id_email DESC").
+			Find(&emails).Error; err != nil {
+			log.Printf("impossible de consulter les emails: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la consultation des emails."})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": emails})
+	}
+}
+
+// DeleteEmailHandler supprime un email uniquement s'il appartient à l'application authentifiée.
+func DeleteEmailHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		applicationID, ok := setting.AuthenticatedApplicationID(c)
+		if !ok {
+			log.Printf("identifiant d'application absent après authentification")
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
+			return
+		}
+
+		emailID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || emailID < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Identifiant d'email invalide."})
+			return
+		}
+
+		result := db.Where("id_email = ? AND id_application = ?", emailID, applicationID).
+			Delete(&database.Email{})
+		if result.Error != nil {
+			log.Printf("impossible de supprimer l'email %d: %v", emailID, result.Error)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la suppression de l'email."})
+			return
+		}
+		if result.RowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Email introuvable."})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Email supprimé avec succès."})
 	}
 }
