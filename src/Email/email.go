@@ -1,164 +1,468 @@
 package email
 
-import (
-	"log"
-	"net/http"
-	"strconv"
-	"time"
+import ( "crypto/rand"
+ "encoding/hex"
+  "io" 
+  "log"
+   "mime/multipart"
+    "net/http"
+	 "os"
+	  "path/filepath"
+	   "strconv" 
+	   "strings"
+	    "time"
 
-	setting "email-send-API/src/Setting"
-	"email-send-API/src/database"
+setting "email-send-API/src/Setting"
+"email-send-API/src/database"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
+"github.com/gin-gonic/gin"
+"gorm.io/gorm"
+
+
 )
 
-const (
-	// représente les différents statuts possibles pour un email.
-	emailSending = "SENDING"
-	emailSent    = "SENT"
-	emailFailed  = "FAILED"
+const ( emailSending = "SENDING"
+ emailSent = "SENT"
+  emailFailed = "FAILED"
+
+uploadDir      = "storage/uploads"
+maxFileSize    = 10 << 20
+maxTotalSize   = 25 << 20
+maxFiles       = 5
+maxRequestSize = 27 << 20
+
+
 )
 
-// AddEmailHandler enregistre l'email, l'envoie et conserve le résultat.
-func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var dto database.CreateEmailDTO
-		if err := c.ShouldBindJSON(&dto); err != nil {
+// AddEmailHandler crée un email avec ses pièces jointes et lance son envoi. func AddEmailHandler(db *gorm.DB, smtpClient *SMTPClient) gin.HandlerFunc { return func(c *gin.Context) {
+
+	// Limiter la taille de la requête.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestSize)
+
+	// Récupérer les informations de l'email.
+	var dto database.CreateEmailDTO
+
+	if err := c.ShouldBind(&dto); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Données invalides.",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// Récupérer le formulaire multipart.
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Impossible de récupérer les fichiers.",
+		})
+		return
+	}
+	defer form.RemoveAll()
+
+	// Récupérer les fichiers.
+	files := form.File["fichiers"]
+
+	// Vérifier le nombre de fichiers.
+	if len(files) > maxFiles {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Maximum 5 fichiers autorisés.",
+		})
+		return
+	}
+
+	// Vérifier les tailles individuelles et cumulées.
+	var totalSize int64
+
+	for _, file := range files {
+		if file.Size <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
-				"message": "Données invalides.",
-				"error":   err.Error(),
+				"message": "Un fichier est vide ou invalide.",
 			})
 			return
 		}
 
-		// Récupérer l'ID de l'application authentifiée depuis le contexte Gin.
-		applicationID, ok := setting.AuthenticatedApplicationID(c)
-		if !ok {
-			log.Printf("identifiant d'application absent après authentification")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
+		if file.Size > maxFileSize {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Un fichier dépasse la limite de 10 Mio.",
+			})
 			return
 		}
 
-		// Enregistrer l'email avant de commencer son envoi.
-		now := time.Now().UTC()
-		emailRecord := database.Email{
-			IDApplication:       applicationID,
-			Destinataire:        dto.Destinataire,
-			Objet:               dto.Objet,
-			Message:             dto.Message,
-			TypeContenu:         dto.TypeContenu,
-			Statut:              emailSending,
-			NombreMaxTentatives: 1,  // Nombre maximum de tentatives d'envoi
-			DelaiRetrySecondes:  15, // Délai entre les tentatives d'envoi en secondes
-			DateCreation:        now,
-			DateDebutTraitement: &now, // Date de début du traitement de l'email
-		}
+		totalSize += file.Size
+	}
 
-		if err := db.Create(&emailRecord).Error; err != nil {
-			log.Printf("impossible d'enregistrer l'email: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement de l'email."})
-			return
-		}
+	if totalSize > maxTotalSize {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "La taille totale dépasse 25 Mio.",
+		})
+		return
+	}
 
-		// Envoyer l'email et enregistrer ses tentatives.
-		sendErr, attemptErr := sendWithAttempts(db, &emailRecord, smtpClient)
-		if attemptErr != nil {
-			sendErr = attemptErr
-		}
-		//
-		finishedAt := time.Now().UTC()
-		updates := map[string]interface{}{
-			"date_fin_traitement":      finishedAt,
-			"date_prochaine_tentative": nil,
-		}
-		if sendErr != nil {
-			message := sendErr.Error()
-			updates["statut"] = emailFailed
-			updates["message_erreur"] = message
-		} else {
-			updates["statut"] = emailSent
-		}
+	// Récupérer l'application authentifiée.
+	applicationID, ok := setting.AuthenticatedApplicationID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de l'authentification.",
+		})
+		return
+	}
 
-		if err := db.Model(&emailRecord).Updates(updates).Error; err != nil {
-			log.Printf("impossible d'enregistrer le résultat d'envoi: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "L'envoi a été tenté, mais son résultat n'a pas pu être enregistré."})
-			return
-		}
+	// Préparer l'email.
+	now := time.Now().UTC()
 
-		// Mettre à jour l'objet emailRecord avec les nouvelles valeurs pour la réponse.
-		emailRecord.DateFinTraitement = &finishedAt
-		emailRecord.DateProchaineTentative = nil
-		if sendErr != nil {
-			message := sendErr.Error()
-			emailRecord.Statut = emailFailed
-			emailRecord.MessageErreur = &message
-			if attemptErr != nil {
-				log.Printf("impossible d'enregistrer une tentative d'envoi: %v", attemptErr)
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'enregistrement d'une tentative d'envoi.", "data": emailRecord})
-				return
+	emailRecord := database.Email{
+		IDApplication:       applicationID,
+		Destinataire:        dto.Destinataire,
+		Objet:               dto.Objet,
+		Message:             dto.Message,
+		TypeContenu:         dto.TypeContenu,
+		Statut:              emailSending,
+		NombreMaxTentatives: 1,
+		DelaiRetrySecondes:  15,
+		DateCreation:        now,
+		DateDebutTraitement: &now,
+	}
+
+	var attachments []database.PieceJointe
+	var savedPaths []string
+
+	// Nettoyer les fichiers en cas d'échec.
+	cleanup := func() {
+		for _, path := range savedPaths {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				log.Printf("Erreur suppression fichier %s: %v", path, err)
 			}
-			c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "L'envoi de l'email a échoué.", "data": emailRecord})
+		}
+	}
+
+	// Enregistrer l'email et les pièces jointes.
+	err = db.Transaction(func(tx *gorm.DB) error {
+
+		if err := tx.Create(&emailRecord).Error; err != nil {
+			return err
+		}
+
+		for _, file := range files {
+			attachment, err := saveAttachment(file, emailRecord.IDEmail)
+			if err != nil {
+				return err
+			}
+
+			savedPaths = append(savedPaths, attachment.CheminFichier)
+			attachments = append(attachments, attachment)
+		}
+
+		if len(attachments) > 0 {
+			if err := tx.Create(&attachments).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		cleanup()
+
+		log.Printf("Erreur enregistrement email: %v", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de l'enregistrement de l'email et des pièces jointes.",
+		})
+		return
+	}
+
+	// Envoyer l'email.
+	// sendWithAttempts devra être adapté pour transmettre les pièces jointes.
+	sendErr, attemptErr := sendWithAttempts(db, &emailRecord, smtpClient)
+
+	if attemptErr != nil {
+		sendErr = attemptErr
+	}
+
+	// Enregistrer le résultat de l'envoi.
+	finishedAt := time.Now().UTC()
+
+	updates := map[string]interface{}{
+		"date_fin_traitement":      finishedAt,
+		"date_prochaine_tentative": nil,
+	}
+
+	if sendErr != nil {
+		message := sendErr.Error()
+		updates["statut"] = emailFailed
+		updates["message_erreur"] = message
+	} else {
+		updates["statut"] = emailSent
+		updates["message_erreur"] = nil
+	}
+
+	if err := db.Model(&emailRecord).Updates(updates).Error; err != nil {
+		log.Printf("Erreur mise à jour email: %v", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "L'envoi a été tenté, mais le résultat n'a pas pu être enregistré.",
+		})
+		return
+	}
+
+	emailRecord.DateFinTraitement = &finishedAt
+	emailRecord.DateProchaineTentative = nil
+
+	if sendErr != nil {
+		message := sendErr.Error()
+		emailRecord.Statut = emailFailed
+		emailRecord.MessageErreur = &message
+
+		if attemptErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": "Erreur lors de l'enregistrement d'une tentative.",
+				"data":    emailRecord,
+			})
 			return
 		}
 
-		emailRecord.Statut = emailSent
-		c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Email envoyé avec succès.", "data": emailRecord})
+		c.JSON(http.StatusBadGateway, gin.H{
+			"success": false,
+			"message": "L'envoi de l'email a échoué.",
+			"data": gin.H{
+				"email":          emailRecord,
+				"pieces_jointes": attachments,
+			},
+		})
+		return
 	}
+
+	emailRecord.Statut = emailSent
+	emailRecord.MessageErreur = nil
+
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"message": "Email envoyé avec succès.",
+		"data": gin.H{
+			"email":          emailRecord,
+			"pieces_jointes": attachments,
+		},
+	})
 }
 
-// ListEmailsHandler retourne uniquement les emails de l'application authentifiée.
-func ListEmailsHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		applicationID, ok := setting.AuthenticatedApplicationID(c)
-		if !ok {
-			log.Printf("identifiant d'application absent après authentification")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
-			return
-		}
 
-		emails := make([]database.Email, 0)
-		if err := db.Where("id_application = ?", applicationID).
-			Order("id_email DESC").
-			Find(&emails).Error; err != nil {
-			log.Printf("impossible de consulter les emails: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la consultation des emails."})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": emails})
-	}
 }
 
-// DeleteEmailHandler supprime un email uniquement s'il appartient à l'application authentifiée.
-func DeleteEmailHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		applicationID, ok := setting.AuthenticatedApplicationID(c)
-		if !ok {
-			log.Printf("identifiant d'application absent après authentification")
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de l'authentification."})
-			return
-		}
+// saveAttachment enregistre un fichier et prépare ses informations. func saveAttachment(file *multipart.FileHeader, emailID int64) (database.PieceJointe, error) {
 
-		emailID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || emailID < 1 {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Identifiant d'email invalide."})
-			return
-		}
+var attachment database.PieceJointe
 
-		result := db.Where("id_email = ? AND id_application = ?", emailID, applicationID).
-			Delete(&database.Email{})
-		if result.Error != nil {
-			log.Printf("impossible de supprimer l'email %d: %v", emailID, result.Error)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la suppression de l'email."})
-			return
-		}
-		if result.RowsAffected == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Email introuvable."})
-			return
-		}
+src, err := file.Open()
+if err != nil {
+	return attachment, err
+}
+defer src.Close()
 
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Email supprimé avec succès."})
+// Détecter le type MIME.
+buffer := make([]byte, 512)
+n, err := io.ReadFull(src, buffer)
+
+if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+	return attachment, err
+}
+
+mimeType := http.DetectContentType(buffer[:n])
+
+if _, err := src.Seek(0, io.SeekStart); err != nil {
+	return attachment, err
+}
+
+// Générer un nom unique.
+randomBytes := make([]byte, 16)
+
+if _, err := rand.Read(randomBytes); err != nil {
+	return attachment, err
+}
+
+filename := hex.EncodeToString(randomBytes) +
+	strings.ToLower(filepath.Ext(file.Filename))
+
+destination := filepath.Join(uploadDir, filename)
+
+// Enregistrer physiquement le fichier.
+dst, err := os.OpenFile(
+	destination,
+	os.O_WRONLY|os.O_CREATE|os.O_EXCL,
+	0600,
+)
+if err != nil {
+	return attachment, err
+}
+
+_, copyErr := io.Copy(dst, src)
+closeErr := dst.Close()
+
+if copyErr != nil {
+	_ = os.Remove(destination)
+	return attachment, copyErr
+}
+
+if closeErr != nil {
+	_ = os.Remove(destination)
+	return attachment, closeErr
+}
+
+attachment = database.PieceJointe{
+	IDEmail:       emailID,
+	NomFichier:    filepath.Base(file.Filename),
+	TypeMIME:      mimeType,
+	CheminFichier: destination,
+	TailleFichier: file.Size,
+	DateCreation:  time.Now().UTC(),
+}
+
+return attachment, nil
+
+
+}
+
+// ListEmailsHandler retourne les emails de l'application authentifiée. func ListEmailsHandler(db *gorm.DB) gin.HandlerFunc { return func(c *gin.Context) {
+
+	applicationID, ok := setting.AuthenticatedApplicationID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de l'authentification.",
+		})
+		return
 	}
+
+	emails := make([]database.Email, 0)
+
+	if err := db.Where(
+		"id_application = ?",
+		applicationID,
+	).Order("id_email DESC").Find(&emails).Error; err != nil {
+
+		log.Printf("Erreur consultation emails: %v", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de la consultation des emails.",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    emails,
+	})
+}
+
+
+}
+
+// DeleteEmailHandler supprime un email et ses pièces jointes. func DeleteEmailHandler(db *gorm.DB) gin.HandlerFunc { return func(c *gin.Context) {
+
+	applicationID, ok := setting.AuthenticatedApplicationID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de l'authentification.",
+		})
+		return
+	}
+
+	emailID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+
+	if err != nil || emailID < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Identifiant d'email invalide.",
+		})
+		return
+	}
+
+	var emailRecord database.Email
+
+	if err := db.Where(
+		"id_email = ? AND id_application = ?",
+		emailID,
+		applicationID,
+	).First(&emailRecord).Error; err != nil {
+
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"message": "Email introuvable.",
+			})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de la récupération de l'email.",
+		})
+		return
+	}
+
+	var attachments []database.PieceJointe
+
+	if err := db.Where(
+		"id_email = ?",
+		emailID,
+	).Find(&attachments).Error; err != nil {
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de la récupération des pièces jointes.",
+		})
+		return
+	}
+
+	// Supprimer les données en base.
+	err = db.Transaction(func(tx *gorm.DB) error {
+
+		if err := tx.Where(
+			"id_email = ?",
+			emailID,
+		).Delete(&database.PieceJointe{}).Error; err != nil {
+			return err
+		}
+
+		return tx.Delete(&emailRecord).Error
+	})
+
+	if err != nil {
+		log.Printf("Erreur suppression email: %v", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Erreur lors de la suppression de l'email.",
+		})
+		return
+	}
+
+	// Supprimer les fichiers physiques.
+	for _, attachment := range attachments {
+		if err := os.Remove(attachment.CheminFichier); err != nil &&
+			!os.IsNotExist(err) {
+			log.Printf("Erreur suppression pièce jointe: %v", err)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Email et pièces jointes supprimés avec succès.",
+	})
+}
+
+
 }

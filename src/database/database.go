@@ -86,10 +86,10 @@ func (Email) TableName() string {
 
 // CreateEmailDTO valide les données nécessaires à l'envoi d'un email.
 type CreateEmailDTO struct {
-	Destinataire string `json:"destinataire" binding:"required,email"`
-	Objet        string `json:"objet" binding:"required"`
-	Message      string `json:"message" binding:"required"`
-	TypeContenu  string `json:"type_contenu" binding:"required,oneof=TEXT HTML"`
+	Destinataire string `form:"destinataire" binding:"required,email"`
+	Objet        string `form:"objet" binding:"required"`
+	Message      string `form:"message" binding:"required"`
+	TypeContenu  string `form:"type_contenu" binding:"required,oneof=TEXT HTML"`
 }
 
 // Envoie correspond à une tentative d'envoi d'email.
@@ -139,4 +139,3 @@ type PieceJointeResponseDTO struct {
 	TypeMIME      string `json:"type_mime"`
 	TailleFichier int64  `json:"taille_fichier"`
 }
-
