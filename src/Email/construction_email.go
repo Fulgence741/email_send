@@ -17,32 +17,41 @@ import (
 	"email-send-API/src/database"
 )
 
+// Structure pour gérer l'écriture de données
 type mimeLineWriter struct {
-	writer io.Writer
-	column int
+	writer io.Writer // Destination
+	column int       // Compte le nombre de caractère ecris sur la ligne
 }
 
-func (w *mimeLineWriter) Write(data []byte) (int, error) {
-	total := 0
+// Fonction pour controler la  longueur des lignes pendant l'écriture
+func (request *mimeLineWriter) Write(data []byte) (int, error) {
+	total := 0 // Permet de compter le nombre d'octets écrits
 	for len(data) > 0 {
-		if w.column == 76 {
-			n, err := io.WriteString(w.writer, "\r\n")
+
+		//Retourner à la ligne si l'on atteint 76 caractères
+		if request.column == 76 {
+
+			//gère le retour à la ligne
+			n, err := io.WriteString(request.writer, "\r\n")
 			if err != nil {
 				return total, err
 			}
 			if n != 2 {
 				return total, io.ErrShortWrite
 			}
-			w.column = 0
+
+			// Reinitiallisation du compteur sur une nouvelle ligne
+			request.column = 0
 		}
 
-		size := 76 - w.column
+		//determiner le nombre de caractère restant avant d'atteindre 76
+		size := 76 - request.column
 		if size > len(data) {
 			size = len(data)
 		}
-		n, err := w.writer.Write(data[:size])
+		n, err := request.writer.Write(data[:size])
 		total += n
-		w.column += n
+		request.column += n
 		data = data[n:]
 		if err != nil {
 			return total, err
@@ -54,30 +63,40 @@ func (w *mimeLineWriter) Write(data []byte) (int, error) {
 	return total, nil
 }
 
+// Fonction pour contruire un email
 func buildMIMEMessage(from, recipient *mail.Address, subject, body, contentType string, attachments []database.PieceJointe) ([]byte, error) {
+	//Determiner le format
 	bodyType := "text/plain"
 	if contentType == "HTML" {
 		bodyType = "text/html"
 	}
 
+	//Stockage progrssif des données
 	var message bytes.Buffer
-	message.WriteString("From: " + from.String() + "\r\n")
-	message.WriteString("To: " + recipient.String() + "\r\n")
-	message.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n")
-	message.WriteString("MIME-Version: 1.0\r\n")
+	message.WriteString("From: " + from.String() + "\r\n")                              // ajout d'expéditeur
+	message.WriteString("To: " + recipient.String() + "\r\n")                           // ajout du destinataire
+	message.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", subject) + "\r\n") // ajout de l'objet
+	message.WriteString("MIME-Version: 1.0\r\n")                                        // la version utilisée
 
+	// vérifier si le message contient des pieces jointes
 	if len(attachments) == 0 {
 		message.WriteString("Content-Type: " + bodyType + "; charset=UTF-8\r\n")
 		message.WriteString("Content-Transfer-Encoding: quoted-printable\r\n\r\n")
 		writer := quotedprintable.NewWriter(&message)
+
+		// ecrire le corps  du message
 		if _, err := io.WriteString(writer, body); err != nil {
 			return nil, err
 		}
+		// fermer l'écrivain du message
 		if err := writer.Close(); err != nil {
 			return nil, err
 		}
+		// recupérer le contenu sous forme de tableau d'octets
 		return message.Bytes(), nil
 	}
+
+	// construire un email contenant une ou plusieurs pieces jointes
 
 	multipartWriter := multipart.NewWriter(&message)
 	message.WriteString("Content-Type: multipart/mixed; boundary=" + multipartWriter.Boundary() + "\r\n\r\n")
@@ -97,18 +116,21 @@ func buildMIMEMessage(from, recipient *mail.Address, subject, body, contentType 
 		return nil, err
 	}
 
+	// Parcourir toutes les pieces jointes en ignorant l'index
 	for _, attachment := range attachments {
+		//
 		if err := writeAttachment(multipartWriter, attachment); err != nil {
 			return nil, err
 		}
 	}
-
+	//fermerture de multipart
 	if err := multipartWriter.Close(); err != nil {
 		return nil, err
 	}
 	return message.Bytes(), nil
 }
 
+// intégration d'une piece jointe dans l'email
 func writeAttachment(writer *multipart.Writer, attachment database.PieceJointe) error {
 	filename := path.Base(strings.ReplaceAll(attachment.NomFichier, "\\", "/"))
 	if filename == "." || filename == "/" || strings.ContainsAny(filename, "\r\n") {

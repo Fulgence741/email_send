@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // ConnectDB ouvre une connexion GORM à PostgreSQL et vérifie qu'elle répond.
@@ -26,13 +27,16 @@ func ConnectDB(cfg *setting.Config) (*gorm.DB, error) {
 		Path:   "/" + cfg.DBName,
 		User:   url.UserPassword(cfg.DBUser, cfg.DBPassword),
 	}
+
 	query := dsnURL.Query()
 	query.Set("sslmode", cfg.DBSSLMode)
 	dsnURL.RawQuery = query.Encode()
 
 	db, err := gorm.Open(postgres.Open(dsnURL.String()), &gorm.Config{
 		TranslateError: true,
+		Logger:         logger.Default.LogMode(logger.Silent),
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("erreur de connexion à PostgreSQL: %w", err)
 	}

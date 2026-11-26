@@ -9,12 +9,27 @@ import (
 
 // RegisterRoutes enregistre les routes de l'API.
 func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
+
 	api := router.Group("/v1")
-	api.POST("/applications", AddApplicationHandler(db))
-	api.POST("/applications/liste", setting.APIKeyAuth(db), ListApplicationsHandler(db))
-	api.POST("/applications/supprimer/:id_application", setting.APIKeyAuth(db), DeleteApplicationHandler(db))
-	api.POST("/emails", setting.APIKeyAuth(db), AddEmailHandler(db, smtpClient))
-	api.POST("/emails/liste", setting.APIKeyAuth(db), ListEmailsHandler(db))
-	api.POST("/emails/supprimer/:id_email", setting.APIKeyAuth(db), DeleteEmailHandler(db))
-	api.POST("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
+
+	// Routes publiques
+	public := api.Group("")
+	{
+		public.POST("/applications", AddApplicationHandler(db))
+	}
+
+	// Routes protégées par clé API
+	protected := api.Group("")
+	protected.Use(setting.APIKeyAuth(db))
+
+	{
+		protected.POST("/applications/liste", ListApplicationsHandler(db))
+		protected.POST("/applications/supprimer/:id_application", DeleteApplicationHandler(db))
+
+		protected.POST("/emails", AddEmailHandler(db, smtpClient))
+		protected.POST("/emails/liste", ListEmailsHandler(db))
+		protected.POST("/emails/supprimer/:id_email", DeleteEmailHandler(db))
+
+		protected.POST("/tentatives", ListAttemptsHandler(db))
+	}
 }

@@ -484,7 +484,10 @@ func DeleteEmailHandler(db *gorm.DB) gin.HandlerFunc {
 		for _, attachment := range attachments {
 			if err := os.Remove(attachment.CheminFichier); err != nil &&
 				!os.IsNotExist(err) {
-				log.Printf("Erreur suppression pièce jointe: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"succes":  false,
+					"message": "Erreur lors de la suppression de l'email",
+				})
 			}
 		}
 
