@@ -22,7 +22,8 @@ const (
 // sendWithAttempts envoie l'email et conserve le résultat de chaque tentative.
 func sendWithAttempts(db *gorm.DB,
 	emailRecord *database.Email,
-	smtpClient *SMTPClient) (
+	smtpClient *SMTPClient,
+	attachments []database.PieceJointe) (
 	sendErr error,
 	attemptErr error) {
 	if emailRecord.NombreMaxTentatives < 1 {
@@ -62,6 +63,7 @@ func sendWithAttempts(db *gorm.DB,
 			emailRecord.Objet,
 			emailRecord.Message,
 			emailRecord.TypeContenu,
+			attachments,
 		)
 		// Mettre à jour le statut de la tentative en fonction du résultat de l'envoi
 		attemptUpdates := map[string]interface{}{"statut": attemptSuccess}

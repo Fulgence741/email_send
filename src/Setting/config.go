@@ -1,7 +1,9 @@
 package setting
 
 import (
+	"errors"
 	"fmt"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -36,9 +38,9 @@ type Config struct {
 // LoadConfig charge et valide les variables d'environnement.
 func LoadConfig() (*Config, error) {
 
-	// Charger le fichier .env
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("Fichier .env introuvable, utilisation des variables système")
+	// Charger le fichier .env quand il existe.
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("impossible de charger le fichier .env: %w", err)
 	}
 
 	// Récupérer les ports
@@ -83,7 +85,7 @@ func LoadConfig() (*Config, error) {
 
 		SMTPHost:     getEnv("SMTP_HOST", ""),
 		SMTPPort:     smtpPort,
-		SMTPUser:     getEnv("SMTP_USER", ""),	
+		SMTPUser:     getEnv("SMTP_USER", ""),
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		SMTPFrom:     getEnv("SMTP_FROM", ""),
 		SMTPTLS:      smtpTLS,
@@ -117,6 +119,15 @@ func (cfg *Config) Validate() error {
 	if cfg.DBPort < 1 || cfg.DBPort > 65535 {
 		return fmt.Errorf("DB_PORT invalide")
 	}
+	if cfg.DBHost == "" {
+		return fmt.Errorf("DB_HOST est requis")
+	}
+	if cfg.DBUser == "" {
+		return fmt.Errorf("DB_USER est requis")
+	}
+	if cfg.DBName == "" {
+		return fmt.Errorf("DB_NAME est requis")
+	}
 
 	// SMTP
 	if cfg.SMTPHost == "" {
@@ -138,10 +149,19 @@ func (cfg *Config) Validate() error {
 	if cfg.SMTPFrom == "" {
 		return fmt.Errorf("SMTP_FROM est requis")
 	}
+	if _, err := mail.ParseAddress(cfg.SMTPFrom); err != nil {
+		return fmt.Errorf("SMTP_FROM invalide: %w", err)
+	}
+	if !cfg.SMTPTLS {
+		return fmt.Errorf("SMTP_TLS doit être activé")
+	}
 
 	// Redis
 	if cfg.RedisPort < 1 || cfg.RedisPort > 65535 {
 		return fmt.Errorf("REDIS_PORT invalide")
+	}
+	if cfg.RedisHost == "" {
+		return fmt.Errorf("REDIS_HOST est requis")
 	}
 
 	return nil

@@ -17,6 +17,4 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
 	api.POST("/emails/liste", setting.APIKeyAuth(db), ListEmailsHandler(db))
 	api.POST("/emails/supprimer/:id_email", setting.APIKeyAuth(db), DeleteEmailHandler(db))
 	api.POST("/tentatives", setting.APIKeyAuth(db), ListAttemptsHandler(db))
-	api.POST("/emails/:id_email/piece_jointe", setting.APIKeyAuth(db))
-	api.POST("/emails/:id_email/pieces_jointes/:id_piece_jointe", setting.APIKeyAuth(db))
 }

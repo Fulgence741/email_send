@@ -21,20 +21,20 @@ func main() {
 		log.Fatalf("Erreur chargement configuration : %v", err)
 	}
 
-	// Connexion MySQL
+	// Connexion PostgreSQL
 	db, err := database.ConnectDB(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Connexion Redis
-	rdb, err := redis.NewRedisClient()
+	rdb, err := redis.NewRedisClient(cfg)
 	if err != nil {
 		log.Fatal("Erreur Redis :", err)
 	}
 	defer rdb.Close()
 
-	// Fermer proprement la connexion MySQL
+	// Fermer proprement la connexion PostgreSQL
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatal(err)

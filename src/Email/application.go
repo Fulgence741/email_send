@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -100,7 +101,7 @@ func DeleteApplicationHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		applicationID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		applicationID, err := strconv.ParseInt(c.Param("id_application"), 10, 64)
 		if err != nil || applicationID < 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Identifiant d'application invalide."})
 			return
@@ -110,9 +111,17 @@ func DeleteApplicationHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		var attachments []database.PieceJointe
 		err = db.Transaction(func(tx *gorm.DB) error {
 			var application database.Application
 			if err := tx.First(&application, "id_application = ?", applicationID).Error; err != nil {
+				return err
+			}
+
+			if err := tx.Model(&database.PieceJointe{}).
+				Joins("JOIN emails ON emails.id_email = pieces_jointes.id_email").
+				Where("emails.id_application = ?", applicationID).
+				Find(&attachments).Error; err != nil {
 				return err
 			}
 
@@ -130,6 +139,12 @@ func DeleteApplicationHandler(db *gorm.DB) gin.HandlerFunc {
 			log.Printf("impossible de supprimer l'application %d: %v", applicationID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Erreur lors de la suppression de l'application."})
 			return
+		}
+
+		for _, attachment := range attachments {
+			if err := os.Remove(attachment.CheminFichier); err != nil && !os.IsNotExist(err) {
+				log.Printf("impossible de supprimer la pièce jointe %q: %v", attachment.CheminFichier, err)
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Application supprimée avec succès."})

@@ -3,7 +3,7 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
-	"mime"
+	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	setting "email-send-API/src/Setting"
+	"email-send-API/src/database"
 )
 
 type SMTPClient struct {
@@ -25,7 +26,7 @@ func NewSMTPClient(cfg *setting.Config) *SMTPClient {
 }
 
 // SendEmail envoie un email en utilisant la configuration SMTP du client.
-func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType string) error {
+func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType string, attachments []database.PieceJointe) error {
 
 	// Vérifier la configuration
 	if client == nil || client.Configuration == nil {
@@ -76,28 +77,10 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 		return fmt.Errorf("type de contenu invalide : TEXT ou HTML attendu")
 	}
 
-	// Déterminer le type MIME
-	mimeType := "text/plain"
-
-	if contentType == "HTML" {
-		mimeType = "text/html"
+	message, err := buildMIMEMessage(from, recipient, subject, body, contentType, attachments)
+	if err != nil {
+		return fmt.Errorf("construction du message impossible : %w", err)
 	}
-
-	// Encoder le sujet pour supporter les caractères UTF-8
-	encodedSubject := mime.QEncoding.Encode("UTF-8", subject)
-
-	// Construire le message email
-	message := []byte(
-
-		"From: " + from.String() + "\r\n" +
-			"To: " + recipient.String() + "\r\n" +
-			"Subject: " + encodedSubject + "\r\n" +
-			"MIME-Version: 1.0\r\n" +
-			"Content-Type: " + mimeType + "; charset=UTF-8\r\n" +
-			"Content-Transfer-Encoding: 8bit\r\n" +
-			"\r\n" +
-			body,
-	)
 	// Construire l'adresse du serveur SMTP
 	address := net.JoinHostPort(host, fmt.Sprint(cfg.SMTPPort))
 
@@ -131,7 +114,7 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 	}
 	// Vérifier si le serveur supporte STARTTLS
 	if !cfg.SMTPTLS {
-		return fmt.Errorf("une connnexion TLS est obligatoire")
+		return fmt.Errorf("une connexion TLS est obligatoire")
 	}
 	ok, _ := smtpConnection.Extension("STARTTLS")
 
@@ -191,7 +174,7 @@ func (client *SMTPClient) SendEmail(destinataire, subject, body, contentType str
 
 	// Fermer proprement la session SMTP
 	if err := smtpConnection.Quit(); err != nil {
-		return fmt.Errorf("erreur fermeture session SMTP : %w", err)
+		log.Printf("email accepté par le serveur SMTP, mais fermeture de session impossible: %v", err)
 	}
 
 	return nil

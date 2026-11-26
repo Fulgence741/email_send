@@ -3,6 +3,9 @@ package database
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"time"
 
 	setting "email-send-API/src/Setting"
@@ -13,17 +16,21 @@ import (
 
 // ConnectDB ouvre une connexion GORM à PostgreSQL et vérifie qu'elle répond.
 func ConnectDB(cfg *setting.Config) (*gorm.DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.DBHost,
-		cfg.DBPort,
-		cfg.DBUser,
-		cfg.DBPassword,
-		cfg.DBName,
-		cfg.DBSSLMode,
-	)
+	if cfg == nil {
+		return nil, fmt.Errorf("configuration de base de données absente")
+	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	dsnURL := &url.URL{
+		Scheme: "postgres",
+		Host:   net.JoinHostPort(cfg.DBHost, strconv.Itoa(cfg.DBPort)),
+		Path:   "/" + cfg.DBName,
+		User:   url.UserPassword(cfg.DBUser, cfg.DBPassword),
+	}
+	query := dsnURL.Query()
+	query.Set("sslmode", cfg.DBSSLMode)
+	dsnURL.RawQuery = query.Encode()
+
+	db, err := gorm.Open(postgres.Open(dsnURL.String()), &gorm.Config{
 		TranslateError: true,
 	})
 	if err != nil {
@@ -38,6 +45,7 @@ func ConnectDB(cfg *setting.Config) (*gorm.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("impossible de joindre la base de données: %w", err)
 	}
 
