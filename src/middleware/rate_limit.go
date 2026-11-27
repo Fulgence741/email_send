@@ -114,3 +114,4 @@ func RateLimitByApplication(limiter *RateLimiter) gin.HandlerFunc {
 		c.Next()
 	}
 }
+//
