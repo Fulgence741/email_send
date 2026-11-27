@@ -3,12 +3,13 @@ package main
 import (
 	"log"
 	"strconv"
+	"time"
 
 	email "email-send-API/src/Email"
+	redis "email-send-API/src/Redis"
 	setting "email-send-API/src/Setting"
 	"email-send-API/src/database"
-
-	redis "email-send-API/src/Redis"
+	"email-send-API/src/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,6 +35,12 @@ func main() {
 	}
 	defer rdb.Close()
 
+	// Initialiser le rate limit 
+	limiter, err := middleware.NewRateLimiter(rdb, 5, time.Minute)
+	if err != nil {
+		log.Fatal("Erreur rate limit :", err)
+	}
+
 	// Fermer proprement la connexion PostgreSQL
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -45,7 +52,7 @@ func main() {
 	router := gin.Default()
 
 	// Enregistrer les routes
-	email.RegisterRoutes(router, db, email.NewSMTPClient(cfg))
+	email.RegisterRoutes(router, db, email.NewSMTPClient(cfg), limiter)
 
 	// Démarrer le serveur
 	port := strconv.Itoa(cfg.AppPort)

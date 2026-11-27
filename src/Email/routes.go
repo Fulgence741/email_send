@@ -2,15 +2,17 @@ package email
 
 import (
 	setting "email-send-API/src/Setting"
+	"email-send-API/src/middleware"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 // RegisterRoutes enregistre les routes de l'API.
-func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
+func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient, limiter *middleware.RateLimiter) {
 
 	api := router.Group("/v1")
+	api.Use(middleware.RateLimitByIP(limiter))
 
 	// Routes publiques
 	public := api.Group("")
@@ -20,7 +22,7 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient) {
 
 	// Routes protégées par clé API
 	protected := api.Group("")
-	protected.Use(setting.APIKeyAuth(db))
+	protected.Use(setting.APIKeyAuth(db), middleware.RateLimitByApplication(limiter))
 
 	{
 		protected.POST("/applications/liste", ListApplicationsHandler(db))

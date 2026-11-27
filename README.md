@@ -27,6 +27,10 @@
 - `POST /v1/tentatives` retourne directement la liste détaillée des tentatives
   d'envoi de l'application identifiée par la clé `X-API-Key`.
 
+Les routes `/v1` sont limitées à 60 requêtes par minute et par adresse IP.
+Les routes protégées ont également une limite de 60 requêtes par minute et par
+application. Les compteurs sont partagés via Redis.
+
 Exemple avec `curl` :
 
 ```sh
