@@ -9,11 +9,15 @@ import (
 )
 
 // RegisterRoutes enregistre les routes de l'API.
-func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient, limiter *middleware.RateLimiter) {
+func RegisterRoutes(
+	router *gin.Engine,
+	db *gorm.DB,
+	smtpClient *SMTPClient,
+	ipLimiter *middleware.RateLimiter,
+	appLimit *middleware.RateLimiter) {
 
 	api := router.Group("/v1")
-	api.Use(middleware.RateLimitByIP(limiter))
-
+	api.Use(middleware.RateLimitByIP(ipLimiter))
 	// Routes publiques
 	public := api.Group("")
 	{
@@ -22,7 +26,9 @@ func RegisterRoutes(router *gin.Engine, db *gorm.DB, smtpClient *SMTPClient, lim
 
 	// Routes protégées par clé API
 	protected := api.Group("")
-	protected.Use(setting.APIKeyAuth(db), middleware.RateLimitByApplication(limiter))
+	protected.Use(
+		setting.APIKeyAuth(db),
+		middleware.RateLimitByApplication(appLimit))
 
 	{
 		protected.POST("/applications/liste", ListApplicationsHandler(db))

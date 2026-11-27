@@ -33,6 +33,12 @@ type Config struct {
 	RedisHost     string
 	RedisPort     int
 	RedisPassword string
+
+	RedisRateLimitUsername string
+	RedisRateLimitPassword string
+
+	RedisCacheUsername string
+	RedisCachePassword string
 }
 
 // LoadConfig charge et valide les variables d'environnement.
@@ -72,10 +78,12 @@ func LoadConfig() (*Config, error) {
 
 	// Construire la configuration
 	cfg := &Config{
+		// application
 		AppName: getEnv("APP_NAME", "email-send-API"),
 		AppEnv:  getEnv("APP_ENV", "development"),
 		AppPort: appPort,
 
+		// base de donnée
 		DBHost:     getEnv("DB_HOST", "localhost"),
 		DBPort:     dbPort,
 		DBUser:     getEnv("DB_USER", ""),
@@ -83,6 +91,7 @@ func LoadConfig() (*Config, error) {
 		DBName:     getEnv("DB_NAME", ""),
 		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 
+		// serveur smtp
 		SMTPHost:     getEnv("SMTP_HOST", ""),
 		SMTPPort:     smtpPort,
 		SMTPUser:     getEnv("SMTP_USER", ""),
@@ -90,9 +99,18 @@ func LoadConfig() (*Config, error) {
 		SMTPFrom:     getEnv("SMTP_FROM", ""),
 		SMTPTLS:      smtpTLS,
 
-		RedisHost:     getEnv("REDIS_HOST", "localhost"),
-		RedisPort:     redisPort,
-		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		// redis
+		RedisHost: getEnv("REDIS_HOST", "localhost"),
+		RedisPort: redisPort,
+
+		//redis rate limit
+		RedisRateLimitUsername: getEnv("REDIS_RATE_LIMIT_USERNAME", ""),
+		RedisRateLimitPassword: getEnv("REDIS_RATE_LIMIT_PASSWORD", ""),
+
+		//redis cache
+
+		RedisCacheUsername: getEnv("REDIS_CACHE_USERNAME", ""),
+		RedisCachePassword: getEnv("REDIS_CACHE_PASSWORD", ""),
 	}
 
 	// Valider la configuration
@@ -163,7 +181,19 @@ func (cfg *Config) Validate() error {
 	if cfg.RedisHost == "" {
 		return fmt.Errorf("REDIS_HOST est requis")
 	}
+	if cfg.RedisRateLimitUsername == "" {
+		return fmt.Errorf("REDIS_RATE_LIMIT_USERNAME est requis")
+	}
 
+	if cfg.RedisRateLimitPassword == "" {
+		return fmt.Errorf("REDIS_RATE_LIMIT_PASSWORD est requis")
+	}
+	if cfg.RedisCacheUsername == "" {
+		return fmt.Errorf("REDIS_CACHE_USERNAME est requis")
+	}
+	if cfg.RedisCachePassword == "" {
+		return fmt.Errorf("REDIS_CACHE_PASSWORD est requis")
+	}
 	return nil
 }
 
